@@ -149,7 +149,7 @@ class World(DirectObject):
             phase_deg = (-(360 * m / self.M + delta_f * n)) % 360
             phase_rad = math.radians(phase_deg)
 
-            marker = self.master.loader.loadModel("models/planet_sphere")
+            marker = self.master.loader.loadModel("../models/planet_sphere")
             marker.setScale(self.sat_size_scale)
             marker.setColor(orbit_color)
             marker.reparentTo(orbit_pivot)
@@ -164,15 +164,15 @@ class World(DirectObject):
         for relay in self.ground_relays:
             x, y, z = relay.get_cartesian_coords()
             scale = self.earth_size_scale / relay.earth_radius
-            marker = self.master.loader.loadModel("models/planet_sphere")
+            marker = self.master.loader.loadModel("../models/planet_sphere")
             marker.setScale(0.2)
             marker.setColor(World.color_map.get(relay.continent, (1, 1, 1, 1)))
             marker.setPos(x * scale, y * scale, z * scale)
             marker.reparentTo(self.ground_pivot)
             relay.marker = marker
 
-        self.earth = self.master.loader.loadModel("models/planet_sphere")
-        earth_tex = self.master.loader.loadTexture("models/earth_1k_tex.jpg")
+        self.earth = self.master.loader.loadModel("../models/planet_sphere")
+        earth_tex = self.master.loader.loadTexture("../models/earth_1k_tex.jpg")
         self.earth.setTexture(earth_tex, 1)
         self.earth.reparentTo(self.base)
         self.earth.setScale(self.earth_size_scale)
@@ -214,7 +214,8 @@ class World(DirectObject):
             n, m = sat.orbit_idx, sat.sat_idx_in_orbit
             pos1 = sat.marker.getPos(self.base)
 
-            delta_m = np.ceil(self.F * (1 - 1 / self.N))
+            # delta_m = np.ceil(self.F * (1 - 1 / self.N))
+            delta_m = self.F
 
             if n == 0:
                 if self.inclination_deg == 90:
@@ -255,7 +256,7 @@ class World(DirectObject):
         if hasattr(self, 'gsl_node'):
             self.gsl_node.removeNode()
 
-        if self.is_isl:
+        if not self.is_isl:
             parent = self.base.attachNewNode("gsl_links")
             self.gsl_node = parent
 
@@ -275,6 +276,7 @@ class World(DirectObject):
                             pos_relay = relay.marker.getPos(self.base)
                             lines.moveTo(pos_sat)
                             lines.drawTo(pos_relay)
+                            sat.marker.setColor((1,1,1,1))
 
                     else:
                         p_start, r_start, p_end, r_end = relay.search_regions_desc
@@ -282,6 +284,7 @@ class World(DirectObject):
                             pos_relay = relay.marker.getPos(self.base)
                             lines.moveTo(pos_sat)
                             lines.drawTo(pos_relay)
+                            sat.marker.setColor((0,0,0,0))
 
                 relay_node = parent.attachNewNode(lines.create())
         else:
@@ -374,7 +377,7 @@ class World(DirectObject):
         x, y, z = node.get_cartesian_coords()
         scale = self.earth_size_scale / node.earth_radius
 
-        marker = self.master.loader.loadModel("models/planet_sphere")
+        marker = self.master.loader.loadModel("../models/planet_sphere")
         marker.setScale(0.4)
         if role == "src":
             marker.setColor((1, 0, 0, 1))

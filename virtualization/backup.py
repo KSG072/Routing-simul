@@ -331,8 +331,8 @@ def check_RTPG_conflicts(region_indices, satellites, M):
 
 
 if __name__ == '__main__':
-    relay_csv_path = './Ground_Relay_Coordinates.csv'
-    image_dir = "./fig/"
+    relay_csv_path = '../parameters/Ground_Relay_Coordinates.csv'
+    image_dir = "../fig/"
 
     # 파라미터 설정
     N = 72

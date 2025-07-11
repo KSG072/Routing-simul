@@ -13,15 +13,22 @@ class Satellite:
         self.earth_radius = earth_radius_km
         self.orbital_radius = self.earth_radius + self.altitude
 
-        self.speed = speed
-
         self.phase_rad = None
         self.lon_asc_node_rad = None
         self.latitude_deg = None
         self.longitude_deg = None
 
+        #visualization
+        self.speed = speed
         self.region = None
         self.marker = None
+
+        #routing buffer queue (forwarding 기능은 외부에서 구현 예정)
+        self.isl_up_buffer = None
+        self.isl_down_buffer = None
+        self.isl_left_buffer = None
+        self.isl_right_buffer = None
+        self.gsl_down_buffer = None
 
     def update_position(self, omega_s, dt):
         self.phase_rad = (self.phase_rad + omega_s * dt * self.speed) % (2 * np.pi)
@@ -82,6 +89,8 @@ class Satellite:
 
     def is_ascending(self):
         return np.cos(self.phase_rad) >= -1e-8
+
+
 
     def __repr__(self):
         return f"Satellite(id={self.node_id}, lat={self.latitude_deg:.2f}, lon={self.longitude_deg:.2f})"

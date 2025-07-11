@@ -18,8 +18,18 @@ class UserNode:
         self.search_regions_asc = None
         self.search_regions_desc = None
 
+        import random
+        self.located_in = None
+        self.is_in_city = None
+        self.destination = random.randint(0, 30-1)
+        self.packet_generation_times = []  # 초 단위 리스트
+
         # 시각화용 Panda3D marker (필요 시)
         self.marker = None
+
+    def set_userinfo(self, indicator, city_name):
+        self.is_in_city = indicator
+        self.located_in = city_name
 
     def get_position(self):
         """

@@ -27,7 +27,7 @@ class EarthApp(ShowBase):
     def __init__(self):
         ShowBase.__init__(self)
 
-        relay_csv_path = './Ground_Relay_Coordinates.csv'
+        relay_csv_path = '../parameters/Ground_Relay_Coordinates.csv'
         N, M, F = 72, 22, 39    # walker-delta
         altitude_km, inclination_deg = 550, 53  # walker-delta
 

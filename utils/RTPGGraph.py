@@ -3,9 +3,10 @@ import networkx as nx
 import numpy as np
 
 class RTPGGraph:
-    def __init__(self, N, M):
+    def __init__(self, N, M, F):
         self.N = N  # Number of orbits
         self.M = M  # Number of regions in R direction
+        self.F = F  # Phasing factor
         self.G = nx.Graph()
 
     def add_satellite(self, satellite, region):
@@ -20,8 +21,8 @@ class RTPGGraph:
             obj=satellite
         )
 
-    def add_relay(self, relay, suffix, region, search_region):
-        node_id = f"{relay.node_id}_{suffix}"
+    def add_relay(self, relay, phase, region, search_region):
+        node_id = f"{relay.node_id}_{phase}"
         self.G.add_node(
             node_id,
             type='relay',
@@ -30,8 +31,18 @@ class RTPGGraph:
             obj=relay
         )
 
-    def add_node(self, node, suffix, region, search_region, node_type):
-        node_id = f"{node.node_id}_{suffix}"
+    def add_node(self, node, phase, region, search_region, node_type):
+        node_id = f"{node.node_id}_{phase}"
+        self.G.add_node(
+            node_id,
+            type=node_type,
+            position=region,
+            search_region=search_region,  # tuple: (P_min, P_max, R_min, R_max)
+            obj=node
+        )
+
+    def add_user(self, node,  region, search_region, node_type):
+        node_id = f"user-{node.node_id}"
         self.G.add_node(
             node_id,
             type=node_type,
@@ -70,9 +81,26 @@ class RTPGGraph:
                     self.G.add_edge(sid, neighbor, type='isl')
 
             # Inter-orbit: same sat_idx, orbit ± 1
+
+            # 외곽 isl 테스트용 (그 외 처리 X)
+            # if 0 < o < self.N-1:
+            #     continue
+            # else:
+            if o == 0:
+                left_sat_idx, right_sat_idx = (s - self.F) % self.M, s
+            elif o == self.N-1:
+                left_sat_idx, right_sat_idx = s, (s + self.F) % self.M
+            else:
+                left_sat_idx, right_sat_idx = s, s
+
             for do in [-1, 1]:
                 o2 = (o + do) % self.N
-                neighbor = sat_lookup.get((o2, s))
+
+                if do == -1:
+                    neighbor = sat_lookup.get((o2, left_sat_idx))
+                else:
+                    neighbor = sat_lookup.get((o2, right_sat_idx))
+
                 if neighbor:
                     self.G.add_edge(sid, neighbor, type='isl')
 
@@ -130,3 +158,34 @@ class RTPGGraph:
             return path, length
         except nx.NetworkXNoPath:
             raise RuntimeError(f"No path found between {source_id} and {target_id}")
+
+    def reset_graph(self):
+        """
+        그래프를 초기 상태로 리셋합니다.
+        """
+        self.G = nx.Graph()
+
+    def relay_edge_counts(self):
+        """
+        각 relay 노드가 가진 총 엣지 수를 리스트 형태로 반환합니다.
+        :return: relay 노드별 엣지 개수 리스트
+        """
+        counts = []
+        for nid, data in self.G.nodes(data=True):
+            if data.get('type') == 'relay':
+                counts.append(self.G.degree(nid))
+        return counts
+
+    def count_satellites_connected_to_relays(self):
+        """
+        relay 노드와 연결된 고유 위성 노드의 수를 반환합니다.
+        :return: 연결된 위성 노드의 총 개수
+        """
+        satellite_ids = set()
+        for relay_id, data in self.G.nodes(data=True):
+            if data.get('type') != 'relay':
+                continue
+            for neighbor in self.G.neighbors(relay_id):
+                if self.G.nodes[neighbor].get('type') == 'satellite':
+                    satellite_ids.add(neighbor)
+        return len(satellite_ids)

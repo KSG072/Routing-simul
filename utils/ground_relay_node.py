@@ -18,6 +18,9 @@ class GroundRelayNode:
 
         self.marker = None
 
+        #routing
+        self.buffer_queue = []
+
     def get_position(self):
         return (self.latitude, self.longitude)
 
@@ -29,6 +32,12 @@ class GroundRelayNode:
         y = r * np.cos(lat_rad) * np.sin(lon_rad)
         z = r * np.sin(lat_rad)
         return np.array([x, y, z])
+
+    def receive_packet(self, packet):
+        """
+        지상 릴레이가 패킷을 수신할 때 호출
+        """
+        self.buffer_queue.append(packet)
 
     def __repr__(self):
         return (f"GroundRelayNode(id={self.node_id}, lat={self.latitude:.2f}, "

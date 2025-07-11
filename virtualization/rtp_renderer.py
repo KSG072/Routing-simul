@@ -73,7 +73,7 @@ class RTPRenderer:
             y = self.offset_y + R * self.grid_spacing
 
             color = self.color_map[sat.sat_idx_in_orbit % self.M]
-            marker = self.loader.loadModel("models/planet_sphere")
+            marker = self.loader.loadModel("../models/planet_sphere")
             marker.setScale(0.2)
             marker.setColor(color)
             marker.setPos(x, 0, y)
@@ -91,7 +91,7 @@ class RTPRenderer:
                 P, R = region
                 x = self.offset_x + P * self.grid_spacing
                 y = self.offset_y + R * self.grid_spacing
-                marker = self.loader.loadModel("models/planet_sphere")
+                marker = self.loader.loadModel("../models/planet_sphere")
                 marker.setScale(0.4)
                 marker.setColor(color)
                 marker.setPos(x, 0, y)
@@ -126,7 +126,7 @@ class RTPRenderer:
                 thick = 0.5 if region_type[0] == 'o' else 3
                 box = self._make_box(p_start, r_start, p_end, r_end, box_color, thick=thick)
                 box.reparentTo(self.scene_np)
-                box.hide()
+                # box.hide()
                 container.append(box)
 
             self.original_boxes.extend(origs)
@@ -238,7 +238,7 @@ class RTPRenderer:
         x = self.offset_x + P * self.grid_spacing
         y = self.offset_y + R * self.grid_spacing
 
-        marker = self.loader.loadModel("models/planet_sphere")
+        marker = self.loader.loadModel("../models/planet_sphere")
         marker.setScale(0.4)
         marker.setColor(color)
         marker.setPos(x, 0, y)
