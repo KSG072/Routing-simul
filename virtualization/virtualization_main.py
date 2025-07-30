@@ -38,8 +38,10 @@ class EarthApp(ShowBase):
 
         constellation = WalkerConstellation(N=N, M=M, F=F, altitude_km=altitude_km, inclination_deg=inclination_deg)
         constellation.generate_constellation()
-        satellites = constellation.get_all_satellites()
-        ground_relays = load_ground_relays_from_csv(relay_csv_path, N * M)
+        satellites_dict = constellation.get_all_satellites()
+        ground_relays_dict = load_ground_relays_from_csv(relay_csv_path, N * M)
+        satellites = list(satellites_dict.values())
+        ground_relays = list(ground_relays_dict.values())
         mapper = RTPGMapper(N, M, F, inclination_deg)
 
         relay_region_indices_asc, relay_region_indices_desc = mapper.batch_map_nodes(ground_relays)

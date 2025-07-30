@@ -267,24 +267,59 @@ class World(DirectObject):
                 lines.setColor(color)
 
                 for sat in self.satellites:
-                    P, R = sat.region
+                    P_sat, R_sat = sat.region
                     pos_sat = sat.marker.getPos(self.base)
 
                     if sat.is_ascending():
-                        p_start, r_start, p_end, r_end = relay.search_regions_asc
-                        if (p_start <= P <= p_end) and (r_start <= R <= r_end) and sat.is_visible(relay):
-                            pos_relay = relay.marker.getPos(self.base)
-                            lines.moveTo(pos_sat)
-                            lines.drawTo(pos_relay)
-                            sat.marker.setColor((1,1,1,1))
+                        P_min, R_min ,P_max, R_max = relay.search_regions_asc
+
+                        if P_min < P_max:
+                            if R_min < R_max:
+                                if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                                    pos_relay = relay.marker.getPos(self.base)
+                                    lines.moveTo(pos_sat)
+                                    lines.drawTo(pos_relay)
+                            else:
+                                if P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                                    pos_relay = relay.marker.getPos(self.base)
+                                    lines.moveTo(pos_sat)
+                                    lines.drawTo(pos_relay)
+                        else:
+                            if R_min < R_max:
+                                if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                                    pos_relay = relay.marker.getPos(self.base)
+                                    lines.moveTo(pos_sat)
+                                    lines.drawTo(pos_relay)
+                            else:
+                                if (P_min <= P_sat or P_sat <= P_max) and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg,relay.longitude_deg):
+                                    pos_relay = relay.marker.getPos(self.base)
+                                    lines.moveTo(pos_sat)
+                                    lines.drawTo(pos_relay)
 
                     else:
-                        p_start, r_start, p_end, r_end = relay.search_regions_desc
-                        if (p_start <= P <= p_end) and (r_start <= R <= r_end) and sat.is_visible(relay):
-                            pos_relay = relay.marker.getPos(self.base)
-                            lines.moveTo(pos_sat)
-                            lines.drawTo(pos_relay)
-                            sat.marker.setColor((0,0,0,0))
+                        P_min, R_min ,P_max, R_max = relay.search_regions_desc
+                        if P_min < P_max:
+                            if R_min < R_max:
+                                if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                                    pos_relay = relay.marker.getPos(self.base)
+                                    lines.moveTo(pos_sat)
+                                    lines.drawTo(pos_relay)
+                            else:
+                                if P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                                    pos_relay = relay.marker.getPos(self.base)
+                                    lines.moveTo(pos_sat)
+                                    lines.drawTo(pos_relay)
+                        else:
+                            if R_min < R_max:
+                                if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                                    pos_relay = relay.marker.getPos(self.base)
+                                    lines.moveTo(pos_sat)
+                                    lines.drawTo(pos_relay)
+                            else:
+                                if (P_min <= P_sat or P_sat <= P_max) and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg,relay.longitude_deg):
+                                    pos_relay = relay.marker.getPos(self.base)
+                                    lines.moveTo(pos_sat)
+                                    lines.drawTo(pos_relay)
 
                 relay_node = parent.attachNewNode(lines.create())
         else:
@@ -373,7 +408,7 @@ class World(DirectObject):
 
     def add_node_marker(self, node, role):
         # role = 'src' or 'dest'
-        lat, lon = node.latitude, node.longitude
+        lat, lon = node.latitude_deg, node.longitude_deg
         x, y, z = node.get_cartesian_coords()
         scale = self.earth_size_scale / node.earth_radius
 

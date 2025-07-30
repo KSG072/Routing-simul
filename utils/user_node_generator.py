@@ -1,9 +1,9 @@
 import random
-from user_node import UserNode
+from utils.user_node import UserNode
 from parameters.PARAMS import CONGESTION_PROBABILITY, CONGESTION_AREAS
 
 def generate_users(start_idx, total_count):
-    users = []
+    users = {}
     node_id = start_idx
 
     for _ in range(total_count):
@@ -17,13 +17,13 @@ def generate_users(start_idx, total_count):
         else:
             # 전역 랜덤 생성
             location = "remote"
-            is_in_city = True
-            latitude = random.uniform(-90, 90)
+            is_in_city = False
+            latitude = random.uniform(-53, 53)
             longitude = random.uniform(-180, 180)
 
-        user = UserNode(node_id, latitude, longitude)
+        user = UserNode(f"{location}-{node_id}", latitude, longitude)
         user.set_userinfo(is_in_city, location)
-        users.append(user)
+        users[user.node_id] = user
         node_id += 1
 
     return users

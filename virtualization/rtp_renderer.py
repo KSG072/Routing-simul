@@ -35,8 +35,8 @@ class RTPRenderer:
 
         self._init_color_map()
         self._draw_grid_lines()
-        self._init_ground_relay_nodes()
-        self._init_search_area_boxes()
+        # self._init_ground_relay_nodes()
+        # self._init_search_area_boxes()
         self._init_satellite_nodes()
         self._setup_camera()
 

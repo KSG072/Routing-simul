@@ -73,8 +73,8 @@ def plot_constellation(constellation, altitude_km=550, ground_relays=None, save_
     # 📡 Ground Relay 표시
     if ground_relays:
         for relay in ground_relays:
-            lat_rad = np.deg2rad(relay.latitude)
-            lon_rad = np.deg2rad(relay.longitude)
+            lat_rad = np.deg2rad(relay.latitude_deg)
+            lon_rad = np.deg2rad(relay.longitude_deg)
             x = r_earth * np.cos(lat_rad) * np.cos(lon_rad)
             y = r_earth * np.cos(lat_rad) * np.sin(lon_rad)
             z = r_earth * np.sin(lat_rad)
@@ -256,8 +256,8 @@ def visualize_rtpg_with_wraparound(graph, N, M):
     # # 각 ground relay가 커버하는 RTPG 범위 계산
     # for i, relay in enumerate(ground_relays):
     #     P_range_asc, P_range_desc, R_range = compute_key_node_search_range(
-    #         latitude_deg=relay.latitude,
-    #         longitude_deg=-relay.longitude,
+    #         latitude_deg=relay.latitude_deg,
+    #         longitude_deg=-relay.longitude_deg,
     #         N=N, M=M,
     #         inclination_deg=inclination_deg,
     #         altitude_km=altitude_km,

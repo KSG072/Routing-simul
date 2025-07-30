@@ -57,7 +57,7 @@ def batch_map_nodes(N, M, inclination_deg, altitude_km, nodes, region_indices_as
         (P_asc, R_asc) = region_indices_asc[idx]
         (P_desc, R_desc) = region_indices_desc[idx]
 
-        latitude_deg = node.latitude
+        latitude_deg = node.latitude_deg
 
         P_min_asc, P_max_asc, R_min_asc, R_max_asc = compute_key_node_search_range_from_indices(P_asc, R_asc, N, M, latitude_deg, inclination_deg, altitude_km)
         P_min_desc, P_max_desc, R_min_desc, R_max_desc = compute_key_node_search_range_from_indices(P_desc, R_desc, N, M, latitude_deg, inclination_deg, altitude_km)
@@ -158,7 +158,7 @@ def normalize_wrapped_regions(
 
 
 def load_ground_relays_from_csv(csv_path, idx):
-    relays = []
+    relays = {}
 
     with open(csv_path, 'r', newline='') as f:
         reader = csv.DictReader(f)
@@ -167,9 +167,46 @@ def load_ground_relays_from_csv(csv_path, idx):
             latitude = float(row['latitude'])
             longitude = float(row['longitude'])
             continent = row['continent']
-            relay = GroundRelayNode(node_id, latitude, longitude, continent)
-            relays.append(relay)
+            relay = GroundRelayNode(f"{continent}-{node_id}", latitude, longitude, continent)
+            relays[relay.node_id] = relay
 
             node_id += 1
 
     return relays
+
+def prepare_node_routing_metadata(node, mapper, altitude_km):
+    """
+    하나의 노드 (user 또는 relay)에 대해 region 설정 및 탐색 영역 생성 + 정규화
+    → 해당 노드 객체의 속성으로 직접 저장됨
+    """
+    # 1. region index 추출 (asc, desc)
+    region_asc, region_desc = mapper.get_region_index_from_nodes(node)
+
+    # 2. 탐색 polygon 계산
+    # 노드의 ascending, descending 일때의 (p,r)값 도출
+    search_asc, search_desc = batch_map_nodes(
+        N=mapper.N, M=mapper.M,
+        inclination_deg=np.rad2deg(mapper.inclination_rad),
+        altitude_km=altitude_km,
+        nodes=[node],
+        region_indices_asc=[region_asc],
+        region_indices_desc=[region_desc]
+    )
+
+    # 3. 정규화
+    # 위 노드의 위치 (p,r)값에 의거한 search area 정의
+    norm_asc_r, norm_desc_r, norm_asc_nr, norm_desc_nr = normalize_wrapped_regions(
+        N=mapper.N, M=mapper.M,
+        region_asc=[region_asc],
+        region_desc=[region_desc],
+        batch_search_region_asc=search_asc,
+        batch_search_region_desc=search_desc
+    )
+
+    # 4. 노드에 저장
+    node.region_asc = region_asc
+    node.region_desc = region_desc
+    node.search_regions_asc = norm_asc_r[0]
+    node.search_regions_desc = norm_desc_r[0]
+
+    return node

@@ -63,8 +63,8 @@ def run_routing_simulation(world, rtp_renderer, isl_only=False):
 
     # 기본 relay (지상국들) 등록
     for gr in world.ground_relays:
-        rtpg.add_relay(gr, "asc", gr.region_asc, gr.search_regions_asc)
-        rtpg.add_relay(gr, "desc", gr.region_desc, gr.search_regions_desc)
+        rtpg.add_relay(gr,  gr.region_asc, gr.search_regions_asc)
+        rtpg.add_relay(gr,  gr.region_desc, gr.search_regions_desc)
     rtpg.connect_ground_links()
 
     iterations = 1

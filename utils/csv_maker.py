@@ -28,7 +28,8 @@ def csv_create(header, path, filename):
         print(f"CSV 파일이 성공적으로 생성되었습니다: {full_path}")
 
     except Exception as e:
-        print(f"CSV 파일 저장 중 오류가 발생했습니다: {e}")
+        pass
+        # print(f"CSV 파일 저장 중 오류가 발생했습니다: {e}")
 
 def csv_write(data, path, filename):
 
@@ -41,7 +42,8 @@ def csv_write(data, path, filename):
             # 데이터 작성
             writer.writerows(data)
 
-        print(f"CSV 파일이 성공적으로 생성되었습니다: {full_path}")
+        # print(f"CSV 파일이 성공적으로 생성되었습니다: {full_path}")
 
     except Exception as e:
-        print(f"CSV 파일 저장 중 오류가 발생했습니다: {e}")
+        pass
+        # print(f"CSV 파일 저장 중 오류가 발생했습니다: {e}")

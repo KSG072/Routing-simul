@@ -22,7 +22,7 @@ class WalkerConstellation:
         self.offset_rad = np.deg2rad(self.offset_deg)
 
         self.orbits = []
-        self.satellites = []
+        self.satellites = {}
 
     def generate_constellation(self):
         node_id = 0
@@ -40,7 +40,7 @@ class WalkerConstellation:
                 phase = (2 * np.pi * m / self.M + self.delta_f * n) % (2 * np.pi)
                 sat.set_position_from_phase(phase, lon_asc_node)
                 orbit.add_satellite(sat)
-                self.satellites.append(sat)
+                self.satellites[sat.node_id] = sat
 
                 node_id += 1
 

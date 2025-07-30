@@ -46,7 +46,7 @@ def batch_map_ground_relays(N, M, inclination_deg, altitude_km, ground_relays, r
         (P_asc, R_asc) = relay_region_indices_asc[idx]
         (P_desc, R_desc) = relay_region_indices_desc[idx]
 
-        latitude_deg = relay.latitude
+        latitude_deg = relay.latitude_deg
 
         P_min_asc, P_max_asc, R_min_asc, R_max_asc = compute_key_node_search_range_from_indices(P_asc, R_asc, N, M, latitude_deg, inclination_deg, altitude_km)
         P_min_desc, P_max_desc, R_min_desc, R_max_desc = compute_key_node_search_range_from_indices(P_desc, R_desc, N, M, latitude_deg, inclination_deg, altitude_km)
@@ -62,7 +62,7 @@ def batch_map_users(N, M, inclination_deg, altitude_km, users, user_region_indic
         (P_asc, R_asc) = user_region_indices_asc[idx]
         (P_desc, R_desc) = user_region_indices_desc[idx]
 
-        latitude_deg = user.latitude
+        latitude_deg = user.latitude_deg
 
         P_min_asc, P_max_asc, R_min_asc, R_max_asc = compute_key_node_search_range_from_indices(P_asc, R_asc, N, M, latitude_deg, inclination_deg, altitude_km)
         P_min_desc, P_max_desc, R_min_desc, R_max_desc = compute_key_node_search_range_from_indices(P_desc, R_desc, N, M, latitude_deg, inclination_deg, altitude_km)
