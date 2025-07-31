@@ -50,6 +50,8 @@ class Packet:
 
         self.result = [] # storage 들어갈 때 바뀜
         self.queuing_delays = []
+        self.propagation_delays = 0
+        self.remaining_prop_delay = 0
 
         self.start_at = t
         self.end_at = None # 드롭/도착 했을 때 바뀜
@@ -106,6 +108,10 @@ class Packet:
 
     def set_key_node(self, new_node):
         self.key_node = new_node
+
+    def set_propagation_delay(self, prop_delay):
+        self.propagation_delays += prop_delay
+        self.remaining_prop_delay = prop_delay
 
     def __repr__(self):
         """

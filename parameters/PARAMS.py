@@ -15,6 +15,8 @@ altitude_km = 550
 inclination_deg = 53
 MIN_ELEVATION = 10 # degrees
 
+C = 3 * 100000
+
 TAU = 0.001
 TIME_SLOT = 1
 TOTAL_TIME = 600

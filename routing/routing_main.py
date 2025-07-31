@@ -3,6 +3,7 @@
 from warnings import catch_warnings
 
 import numpy as np
+from numpy.linalg import norm
 from numpy.f2py.rules import generationtime
 
 from tqdm import tqdm
@@ -75,7 +76,15 @@ def calculate_hop_distance(packet, satellites):
         packet.set_remaining_hops(h, v)
     except KeyError:
         print("D")
-def transfer(sequences, next_hops):
+
+def calculate_prop_delay(src, dst):
+    distance = norm(dst-src)
+    prop_delay_sec = distance/C
+    return prop_delay_sec*1000
+
+def transfer(sequences, next_hops, src_coords, disconnected=None):
+    if disconnected is None:
+        disconnected = []
     direction = 0 # 0:up, 1:down, 2:left, 3:right, 4:ground, 5:satellite
     failed = []
     for pkts in sequences: # sequences: [[pkt, pkt, ...],[],[],[],[{gr1: [], gr2: [], ...}],[sat1: [], sat2: [], ...]]
@@ -92,6 +101,10 @@ def transfer(sequences, next_hops):
                 else:
                     pass
                 next_hop = next_hops[direction]
+
+                next_coords = next_hop.cartesian_coords
+                pkt.set_propagation_delay(calculate_prop_delay(src_coords, next_coords))
+
                 next_hop.receive_packet(pkt)
                 pkt.curr = next_hop.node_id
                 pkt.result.append(next_hop.node_id)
@@ -101,8 +114,12 @@ def transfer(sequences, next_hops):
                 try:
                     for detail_direction, packets in pkts[0].items():
                         for p in packets:
-                            if detail_direction in next_hops[direction]:
+                            if detail_direction not in disconnected and detail_direction in next_hops[direction]:
                                 next_hop = next_hops[direction][detail_direction]
+
+                                next_coords = next_hop.cartesian_coords
+                                p.set_propagation_delay(calculate_prop_delay(src_coords, next_coords))
+
                                 next_hop.receive_packet(p)
                                 p.curr = next_hop.node_id
                                 p.result.append(next_hop.node_id)
@@ -124,7 +141,7 @@ def transfer(sequences, next_hops):
 
 if __name__ == '__main__':
     header = [
-        "Time (ms)", "User ID", "Destination Relay ID", "Path Length", "Path"
+        "Time (ms)", "User ID", "Destination Relay ID", "Path Length", "Queuing Delay", "Propagation Delay",
         "Status", "Drop Location", "Drop Latitude", "Drop Longitude", "Drop Region"
     ]
     filepath = "C:/Users/김태성/PycharmProjects/ground-satellite routing/results/"
@@ -194,7 +211,7 @@ if __name__ == '__main__':
             3. 중계 노드 중 하나를 destination으로 하여 rtpg기반 다익스트라 알고리즘으로 경로 형성. 패킷에 경로 정보 입력
             4. 키노드 추출 및 키노드까지의 최단 홉 거리 (수직+수평)계산은 로직 상 안함
             """
-            selected_users = random.sample(list(users.values()), 1000)
+            selected_users = random.sample(list(users.values()), 100)
             for user in selected_users:
                 for _ in range(num_of_generated_packets):
                     new_packet = Packet(t)
@@ -232,7 +249,7 @@ if __name__ == '__main__':
                         [], [],
                         [], {node_id: satellites[node_id] for node_id in u.connected_sats}
                     ]
-                    failed += transfer(bullets, next_hops)
+                    failed += transfer(bullets, next_hops, u.cartesian_coords)
                 else:
                     continue
 
@@ -244,7 +261,7 @@ if __name__ == '__main__':
                         satellites[s.isl_left], satellites[s.isl_right],
                         {node_id: ground_relays[node_id] for node_id in s.connected_grounds}, []
                     ]
-                    failed += transfer(bullets, next_hops)
+                    failed += transfer(bullets, next_hops, s.cartesian_coords, s.disconnected)
                 else:
                     continue
 
@@ -256,7 +273,7 @@ if __name__ == '__main__':
                         [], [],
                         [], {node_id: satellites[node_id] for node_id in g.connected_sats}
                     ]
-                    failed += transfer(bullets, next_hops)
+                    failed += transfer(bullets, next_hops, g.cartesian_coords, g.disconnected)
                 else:
                     continue
 
@@ -331,8 +348,8 @@ if __name__ == '__main__':
 
 
             for s in satellites.values():
-                if s.storage:
-                    s.storage_shuffle() # 패킷 도착 순서에 랜덤성 부여
+                # if s.storage:
+                #     s.storage_shuffle() # 패킷 도착 순서에 랜덤성 부여
                 while s.storage:
                     packet = s.storage.popleft()
                     if packet.curr == packet.key_node:
@@ -364,8 +381,8 @@ if __name__ == '__main__':
                     s.enqueue_packet(direction, packet)
 
             for g in ground_relays.values():
-                if g.storage:
-                    g.storage_shuffle()
+                # if g.storage:
+                #     g.storage_shuffle()
                 while g.storage:
                     packet = g.storage.popleft()
                     if packet.curr == packet.destination: # 도착
@@ -383,24 +400,29 @@ if __name__ == '__main__':
             """위성 공전"""
             for s in satellites.values():
                 s.update_position(omega_s, dt)
+                s.time_tic(dt)
+
             """링크 여부 확인"""
             for g in ground_relays.values():
-                sats = (satellites[node_id] for node_id in g.connected_sats)
+                g.time_tic(dt)
+                sats = (satellites[node_id] for node_id in g.connected_sats if node_id not in g.disconnected)
                 for s in sats:
                     if not s.is_visible(g.latitude_deg, g.longitude_deg):
-                        s.connected_grounds.remove(g.node_id)
-                        g.connected_sats.remove(s.node_id)
+                        s.disconnecetd.add(g.node_id)
+                        g.disconnecetd.add(s.node_id)
             # print(len(results))
             if len(results) >= 100:
                 rows = []
                 while results:
                     packet = results.pop(0)
-                    common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), packet]
+                    common_data = [packet.start_at, packet.source, packet.destination, len(packet.result)]
                     if packet.success:
-                        drop_data = ['success',
+                        drop_data = [sum(packet.queuing_delays), packet.propagation_delays,
+                                     'success',
                                      None, None, None]
                     else:
                         drop_data = [
+                            sum(packet.queuing_delays[:-1]), packet.propagation_delays,
                             'inconsistency' if packet.inconsistency else 'drop',
                             f"at {packet.result[-1]}",
                             packet.ended_lat, packet.ended_lon

@@ -20,6 +20,7 @@ class Satellite:
         self.altitude = altitude_km
         self.earth_radius = earth_radius_km
         self.orbital_radius = self.earth_radius + self.altitude
+        self.cartesian_coords = None
 
         self.phase_rad = None
         self.lon_asc_node_rad = None
@@ -38,6 +39,7 @@ class Satellite:
         self.isl_left = None
         self.isl_right = None
         self.connected_grounds = []
+        self.disconnected = set()
 
         #routing buffer queue (forwarding 기능은 외부에서 구현 예정)
         self.isl_up_buffer = Buffer('isl')
@@ -46,11 +48,13 @@ class Satellite:
         self.isl_right_buffer = Buffer('isl')
         self.gsl_down_buffers = {}
         self.storage = deque()
+        self.receiving = []
 
 
     def update_position(self, omega_s, dt):
         self.phase_rad = (self.phase_rad + omega_s * dt) % (2 * np.pi)
         self.set_position_from_phase(self.phase_rad, self.lon_asc_node_rad)
+        self.cartesian_coords = self.get_cartesian_coords()
 
     def set_position(self, lat, lon):
         self.latitude_deg = lat
@@ -73,7 +77,18 @@ class Satellite:
         return result
 
     def receive_packet(self, packet):
-        self.storage.append(packet)
+        self.receiving.append(packet)
+
+    def time_tic(self, dt):
+        arrived = deque()
+        for p in self.receiving:
+            p.remaining_prop_delay -= dt
+            if p.remaining_prop_delay < 0:
+                arrived.append(p)
+        arrived = deque(sorted(arrived, key=lambda p: p.remaining_prop_delay))
+        for p in arrived:
+            self.receiving.remove(p)
+        self.storage.extend(arrived)
 
     def has_packets(self):
         for buffer in self.gsl_down_buffers.values():
@@ -129,7 +144,7 @@ class Satellite:
         return np.array([x, y, z])
 
     def get_elevation_angle(self, node_lat, node_lon):
-        r_sat = self.get_cartesian_coords()
+        r_sat = self.cartesian_coords
         r_node = self._latlon_to_ecef(node_lat, node_lon, 0.0, self.earth_radius)
 
         vec = r_sat - r_node
@@ -144,7 +159,7 @@ class Satellite:
         Computes whether this satellite is visible from a ground node (relay/user).
         The node must have `.latitude` and `.longitude`.
         """
-        r_sat = self.get_cartesian_coords()
+        r_sat = self.cartesian_coords
         r_node = self._latlon_to_ecef(node_lat, node_lon, 0.0, self.earth_radius)
 
         vec = r_sat - r_node

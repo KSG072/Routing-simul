@@ -13,6 +13,7 @@ class UserNode:
         self.latitude_deg = latitude
         self.longitude_deg = longitude
         self.earth_radius = earth_radius_km
+        self.cartesian_coords = self.get_cartesian_coords()
 
         # RTPG region (asc, desc 각각 1개)
         self.region_asc = None

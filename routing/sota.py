@@ -1,3 +1,5 @@
+from traceback import print_tb
+
 from parameters.PARAMS import SENDING_BUFFER_QUEUE_LASER_PACKETS, PACKET_SIZE_BITS, ISL_RATE_LASER, SMOOTHING_FACTORS, \
     TAU, SGL_KA_DOWNLINK, MAX_SAT_P_DIFF, SGL_KA_UPLINK
 
@@ -79,6 +81,7 @@ def sat_to_ground_forwarding(cur, packet, family):
         q_self_g = cur.gsl_down_buffers[packet.ground_node].size * PACKET_SIZE_BITS
     except KeyError:
         print("key error")
+        print(cur.gsl_down_buffers)
         packet.show_detailed()
         exit(0)
 

@@ -11,6 +11,7 @@ class GroundRelayNode:
         self.longitude_deg = longitude
         self.continent = continent      # color group
         self.earth_radius = earth_radius_km
+        self.cartesian_coords = self.get_cartesian_coords()
 
         self.region_asc = None
         self.region_desc = None
@@ -22,8 +23,10 @@ class GroundRelayNode:
         self.marker = None
 
         #routing
+        self.receiving = []
         self.storage = deque()
         self.connected_sats = []
+        self.disconnected = set()
         self.gsl_up_buffers = {}
 
 
@@ -45,7 +48,18 @@ class GroundRelayNode:
         self.gsl_up_buffers[sat_id] = new_buffer
 
     def receive_packet(self, packet):
-        self.storage.append(packet)
+        self.receiving.append(packet)
+
+    def time_tic(self, dt):
+        arrived = deque()
+        for p in self.receiving:
+            p.remaining_prop_delay -= dt
+            if p.remaining_prop_delay < 0:
+                arrived.append(p)
+        arrived = deque(sorted(arrived, key=lambda p: p.remaining_prop_delay))
+        for p in arrived:
+            self.receiving.remove(p)
+        self.storage.extend(arrived)
 
     def get_packets(self, dt):
         gsl_packets = []
