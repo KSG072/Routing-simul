@@ -109,9 +109,11 @@ def ground_to_sat_forwarding(cur, packet, family):
         packet.queuing_delays.append(q_self_g*PACKET_SIZE_BITS/(TAU*R_up))
         return packet, packet.key_node
     else:
-        candidates = [sat for sat in family if abs(cur.orbit_idx - sat.orbit_idx) <= n0]
-        detour_key_node = min(candidates, key=lambda sat: sat.gsl_down_buffers[packet.ground_node].size)
-        packet.set_key_node(detour_key_node.node_id)
-        packet.queuing_delays.append(cur.gsl_up_buffers[detour_key_node.node_id].size*PACKET_SIZE_BITS/(TAU*R_up))
+        cur = next((sat for sat in family if packet.key_node == sat.node_id), None)
+        if cur is not None:
+            candidates = [sat for sat in family if abs(cur.orbit_idx - sat.orbit_idx) <= n0]
+            detour_key_node = min(candidates, key=lambda sat: cur.gsl_up_buffers[sat.node_id].size)
+            packet.set_key_node(detour_key_node.node_id)
+            packet.queuing_delays.append(cur.gsl_up_buffers[detour_key_node.node_id].size*PACKET_SIZE_BITS/(TAU*R_up))
         return packet, packet.key_node.node_id
 

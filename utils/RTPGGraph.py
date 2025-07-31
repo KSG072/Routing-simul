@@ -174,7 +174,7 @@ class RTPGGraph:
                                 sat.link_to_ground(relay_id)
 
 
-    def connect_user_links(self):
+    def connect_user_links(self, user):
         """
         GSL 링크 연결 (relay 기준, ASC/DESC 포함)
         - search_region은 이미 P_min < P_max, R_min < R_max 로 정규화되어 있음
@@ -184,57 +184,51 @@ class RTPGGraph:
             if data["type"] == "satellite"
         }
 
-        for user_id, user_data in self.G.nodes(data=True):
-            if user_data["type"] not in ("city", "person"):
-                continue
+        candidates_id_pool = []
+        candidates_pool = {}
+        # print(user_data["position"])
+        # print(user_data["search_region"])
 
-            else:
-                user = user_data["obj"]
-                candidates_id_pool = []
-                candidates_pool = {}
-                # print(user_data["position"])
-                # print(user_data["search_region"])
+        for search_region in (user.search_regions_asc, user.search_regions_desc):
+            P_min, R_min ,P_max, R_max = search_region
 
-                for search_region in user_data["search_region"]:
-                    P_min, R_min ,P_max, R_max = search_region
-
-                    for sat_id, sat_data in satellites.items():
-                        P_sat, R_sat = sat_data["position"]
-                        sat = sat_data["obj"]
-                        if P_min <= P_max:
-                            if R_min <= R_max:
-                                if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(user.latitude_deg, user.longitude_deg):
-                                    candidates_id_pool.append(sat_id)
-                                    candidates_pool[sat_id] = sat
-                            else:
-                                if  P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(user.latitude_deg, user.longitude_deg):
-                                    candidates_id_pool.append(sat_id)
-                                    candidates_pool[sat_id] = sat
-                        else:
-                            if R_min <= R_max:
-                                if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(user.latitude_deg, user.longitude_deg):
-                                    candidates_id_pool.append(sat_id)
-                                    candidates_pool[sat_id] = sat
-                            else:
-                                if  (P_min <= P_sat or P_sat <= P_max) and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(user.latitude_deg, user.longitude_deg):
-                                    candidates_id_pool.append(sat_id)
-                                    candidates_pool[sat_id] = sat
-
-                if user_data["type"] == "city":
-                    for sat_id in candidates_id_pool:
-                        self.G.add_edge(user_id, sat_id, type="usl")
-                        user.link_to_sat(sat_id)
+            for sat_id, sat_data in satellites.items():
+                P_sat, R_sat = sat_data["position"]
+                sat = sat_data["obj"]
+                if P_min <= P_max:
+                    if R_min <= R_max:
+                        if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(user.latitude_deg, user.longitude_deg):
+                            candidates_id_pool.append(sat_id)
+                            candidates_pool[sat_id] = sat
+                    else:
+                        if  P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(user.latitude_deg, user.longitude_deg):
+                            candidates_id_pool.append(sat_id)
+                            candidates_pool[sat_id] = sat
                 else:
-                    nearest_sat = candidates_id_pool[0]
-                    highest_angle = 0
-                    for sat_id in candidates_id_pool:
-                        temp = candidates_pool[sat_id].get_elevation_angle(user.latitude_deg, user.longitude_deg)
-                        if highest_angle < temp:
-                            nearest_sat = sat_id
-                            highest_angle = temp
+                    if R_min <= R_max:
+                        if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(user.latitude_deg, user.longitude_deg):
+                            candidates_id_pool.append(sat_id)
+                            candidates_pool[sat_id] = sat
+                    else:
+                        if  (P_min <= P_sat or P_sat <= P_max) and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(user.latitude_deg, user.longitude_deg):
+                            candidates_id_pool.append(sat_id)
+                            candidates_pool[sat_id] = sat
 
-                    self.G.add_edge(user_id, nearest_sat, type="usl")
-                    user.link_to_sat(nearest_sat)
+        if user.is_in_city:
+            for sat_id in candidates_id_pool:
+                self.G.add_edge(user.node_id, sat_id, type="usl")
+                user.link_to_sat(sat_id)
+        else:
+            nearest_sat = candidates_id_pool[0]
+            highest_angle = 0
+            for sat_id in candidates_id_pool:
+                temp = candidates_pool[sat_id].get_elevation_angle(user.latitude_deg, user.longitude_deg)
+                if highest_angle < temp:
+                    nearest_sat = sat_id
+                    highest_angle = temp
+
+            self.G.add_edge(user.node_id, nearest_sat, type="usl")
+            user.link_to_sat(nearest_sat)
 
 
 

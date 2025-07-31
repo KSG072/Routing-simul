@@ -55,7 +55,10 @@ def get_route(rtpg, user, ground_relays):
                   user.is_in_city)
 
     # User만을 위한 연결만 수행
-    rtpg.connect_user_links()
+    rtpg.connect_user_links(user)
+    # if len(user.connected_sats) != len(list(rtpg.G.neighbors(user.node_id))):
+    #     print(user.connected_sats)
+    #     rtpg.show_neighbors(user.node_id)
     # 최단 경로 찾기
     dst_id = random.choice(list(ground_relays.keys()))
     user.destination = dst_id
@@ -98,7 +101,7 @@ def transfer(sequences, next_hops):
                 try:
                     for detail_direction, packets in pkts[0].items():
                         for p in packets:
-                            try:
+                            if detail_direction in next_hops[direction]:
                                 next_hop = next_hops[direction][detail_direction]
                                 next_hop.receive_packet(p)
                                 p.curr = next_hop.node_id
@@ -107,10 +110,10 @@ def transfer(sequences, next_hops):
                                 위성->지상: 지상에서 보내줄 다음 위성 노드를 key node로 변경
                                 지상->위성: 위성에서 향할 다음 지상 노드를 ground node로 변경
                                 """
-
-                            except KeyError:
+                            else:
+                                """패킷 생성 당시엔 있다고 판단된 경로가, 와보니 끊어져있는 상황"""
                                 failed.append(p)
-                                print(1)
+
                 except AttributeError:
                     print("앙앙앙~")
                 except IndexError:
@@ -257,6 +260,8 @@ if __name__ == '__main__':
                 else:
                     continue
 
+            if failed:
+                print(f"failed packets: {len(failed)}")
             while failed:
                 # print(failed)
                 p = failed.pop(0)
@@ -267,8 +272,9 @@ if __name__ == '__main__':
                         end_node = ground_relays[p.curr]
                 else:
                     end_node = satellites[p.curr]
-                p.end(t, 'inconsistency', end_node.node_id, end_node.latitude_deg, end_node.longitude_deg)
-                print(1)
+                # p.end(t, 'inconsistency', end_node.node_id, end_node.latitude_deg, end_node.longitude_deg)
+                # print(end_node.connected_sats)
+                # p.show_detailed()
                 results.append(p)
 
             """드롭 페이즈"""
@@ -317,11 +323,12 @@ if __name__ == '__main__':
                         print('tq')
                     else:
                         packet.next_ground_node_id()
-                        u.enqueue_packet(packet.key_node, packet)
-                        # family = (satellites[node_id] for node_id in ground_relays[packet.ground_node].connected_sats)
-                        # """지상-위성 라우팅 알고리즘 적용 부분"""
-                        # packet, direction = ground_to_sat_forwarding(u, packet, family)
-                        # gu.enqueue_packet(direction, packet)
+                        family = (satellites[node_id] for node_id in users[packet.curr].connected_sats)
+                        """지상-위성 라우팅 알고리즘 적용 부분"""
+                        packet, direction = ground_to_sat_forwarding(u, packet, family)
+                        u.enqueue_packet(direction, packet)
+                        # u.enqueue_packet(packet.key_node, packet) # no 로드밸런싱
+
 
             for s in satellites.values():
                 if s.storage:
@@ -376,6 +383,13 @@ if __name__ == '__main__':
             """위성 공전"""
             for s in satellites.values():
                 s.update_position(omega_s, dt)
+            """링크 여부 확인"""
+            for g in ground_relays.values():
+                sats = (satellites[node_id] for node_id in g.connected_sats)
+                for s in sats:
+                    if not s.is_visible(g.latitude_deg, g.longitude_deg):
+                        s.connected_grounds.remove(g.node_id)
+                        g.connected_sats.remove(s.node_id)
             # print(len(results))
             if len(results) >= 100:
                 rows = []

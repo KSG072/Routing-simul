@@ -49,7 +49,7 @@ class Satellite:
 
 
     def update_position(self, omega_s, dt):
-        self.phase_rad = (self.phase_rad + omega_s * dt * self.speed) % (2 * np.pi)
+        self.phase_rad = (self.phase_rad + omega_s * dt) % (2 * np.pi)
         self.set_position_from_phase(self.phase_rad, self.lon_asc_node_rad)
 
     def set_position(self, lat, lon):
