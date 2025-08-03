@@ -6,7 +6,7 @@ import numpy as np
 
 def hop_distance():
     # --- 설정: CSV 파일 경로 ---
-    file_path = '../results/path length_10000iterations.csv'
+    file_path = '../results/legacy/path length_10000iterations.csv'
 
     # --- CSV 읽어서 각 컬럼 리스트에 저장 ---
     min_vals = []

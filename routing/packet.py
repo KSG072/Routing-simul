@@ -52,6 +52,7 @@ class Packet:
         self.queuing_delays = []
         self.propagation_delays = 0
         self.remaining_prop_delay = 0
+        self.transmission_delay = 0
 
         self.start_at = t
         self.end_at = None # 드롭/도착 했을 때 바뀜

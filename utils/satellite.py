@@ -21,11 +21,14 @@ class Satellite:
         self.earth_radius = earth_radius_km
         self.orbital_radius = self.earth_radius + self.altitude
         self.cartesian_coords = None
+        self.cartesian_coords_for_rtpg = None
 
         self.phase_rad = None
         self.lon_asc_node_rad = None
         self.latitude_deg = None
         self.longitude_deg = None
+        self.real_latitude_deg = None
+        self.real_longitude_deg = None
 
         self.region = None
 
@@ -50,31 +53,64 @@ class Satellite:
         self.storage = deque()
         self.receiving = []
 
+    def get_position(self):
+        return self.real_latitude_deg, self.real_longitude_deg
 
     def update_position(self, omega_s, dt):
         self.phase_rad = (self.phase_rad + omega_s * dt) % (2 * np.pi)
         self.set_position_from_phase(self.phase_rad, self.lon_asc_node_rad)
         self.cartesian_coords = self.get_cartesian_coords()
 
-    def set_position(self, lat, lon):
-        self.latitude_deg = lat
-        self.longitude_deg = lon
+    def set_position_from_phase(self, phase_rad, lon_asc_node_rad):
+        self.phase_rad = phase_rad
+        self.lon_asc_node_rad = lon_asc_node_rad
+        lat = np.arcsin(np.sin(self.inclination) * np.sin(phase_rad))
+        lon = lon_asc_node_rad + np.arctan2(np.cos(self.inclination) * np.sin(phase_rad), np.cos(phase_rad))
+        self.real_latitude_deg = np.rad2deg(lat)
+        self.real_longitude_deg = np.rad2deg(lon % (2 * np.pi))
+
+    def get_cartesian_coords(self):
+        lat_rad = np.deg2rad(self.real_latitude_deg)
+        lon_rad = np.deg2rad(self.real_longitude_deg)
+        r = self.earth_radius + self.altitude
+        x = r * np.cos(lat_rad) * np.cos(lon_rad)
+        y = r * np.cos(lat_rad) * np.sin(lon_rad)
+        z = r * np.sin(lat_rad)
+        return np.array([x, y, z])
+
+    def update_lat_lon_for_RTPG(self):
+        self.latitude_deg, self.longitude_deg = self.real_latitude_deg, self.real_longitude_deg
+        self.cartesian_coords_for_rtpg = self._latlon_to_ecef(self.latitude_deg, self.longitude_deg, self.altitude, self.earth_radius)
+
+    def get_elevation_angle(self, node_lat, node_lon):
+        r_sat = self.cartesian_coords_for_rtpg
+        r_node = self._latlon_to_ecef(node_lat, node_lon, 0.0, self.earth_radius)
+
+        vec = r_sat - r_node
+        dot = np.dot(vec, r_node)
+        elev_rad = np.arcsin(dot / (np.linalg.norm(vec) * np.linalg.norm(r_node)))
+        elev_deg = np.rad2deg(elev_rad)
+
+        return elev_deg
+
+    def is_visible(self, node_lat, node_lon, in_graph=False):
+        if in_graph:
+            r_sat = self.cartesian_coords_for_rtpg
+        else:
+            r_sat = self.cartesian_coords
+        r_node = self._latlon_to_ecef(node_lat, node_lon, 0.0, self.earth_radius)
+
+        vec = r_sat - r_node
+        dot = np.dot(vec, r_node)
+        elev_rad = np.arcsin(dot / (np.linalg.norm(vec) * np.linalg.norm(r_node)))
+        elev_deg = np.rad2deg(elev_rad)
+
+        return elev_deg >= MIN_ELEVATION
 
     def link_to_ground(self, relay_id):
         self.connected_grounds.append(relay_id)
         new_buffer = Buffer('down')
         self.gsl_down_buffers[relay_id] = new_buffer
-
-    def get_packets(self, dt):
-        gsl_packets = []
-        temp = {}
-        for direction, buffer in self.gsl_down_buffers.items():
-            temp[direction] = buffer.dequeue_sequences(dt)
-        gsl_packets.append(temp)
-        result = [self.isl_up_buffer.dequeue_sequences(dt), self.isl_down_buffer.dequeue_sequences(dt),
-                  self.isl_left_buffer.dequeue_sequences(dt), self.isl_right_buffer.dequeue_sequences(dt),
-                  gsl_packets, []]
-        return result
 
     def receive_packet(self, packet):
         self.receiving.append(packet)
@@ -89,6 +125,30 @@ class Satellite:
         for p in arrived:
             self.receiving.remove(p)
         self.storage.extend(arrived)
+
+    def enqueue_packet(self, direction, packet):
+        if direction == 0: # isl up
+            self.isl_up_buffer.enqueue(packet)
+        elif direction == 1: # isl down
+            self.isl_down_buffer.enqueue(packet)
+        elif direction == 2: # isl left
+            self.isl_left_buffer.enqueue(packet)
+        elif direction == 3: # isl right
+            self.isl_right_buffer.enqueue(packet)
+        else:
+            self.gsl_down_buffers[direction].enqueue(packet)
+            pass
+
+    def get_packets(self, dt):
+        gsl_packets = []
+        temp = {}
+        for direction, buffer in self.gsl_down_buffers.items():
+            temp[direction] = buffer.dequeue_sequences(dt)
+        gsl_packets.append(temp)
+        result = [self.isl_up_buffer.dequeue_sequences(dt), self.isl_down_buffer.dequeue_sequences(dt),
+                  self.isl_left_buffer.dequeue_sequences(dt), self.isl_right_buffer.dequeue_sequences(dt),
+                  gsl_packets, []]
+        return result
 
     def has_packets(self):
         for buffer in self.gsl_down_buffers.values():
@@ -109,65 +169,6 @@ class Satellite:
         #     print(dropped)
         return dropped
 
-    def enqueue_packet(self, direction, packet):
-        if direction == 0: # isl up
-            self.isl_up_buffer.enqueue(packet)
-        elif direction == 1: # isl down
-            self.isl_down_buffer.enqueue(packet)
-        elif direction == 2: # isl left
-            self.isl_left_buffer.enqueue(packet)
-        elif direction == 3: # isl right
-            self.isl_right_buffer.enqueue(packet)
-        else:
-            self.gsl_down_buffers[direction].enqueue(packet)
-            pass
-
-    def set_position_from_phase(self, phase_rad, lon_asc_node_rad):
-        self.phase_rad = phase_rad
-        self.lon_asc_node_rad = lon_asc_node_rad
-        lat = np.arcsin(np.sin(self.inclination) * np.sin(phase_rad))
-        lon = lon_asc_node_rad + np.arctan2(np.cos(self.inclination) * np.sin(phase_rad), np.cos(phase_rad))
-
-        self.latitude_deg = np.rad2deg(lat)
-        self.longitude_deg = np.rad2deg(lon % (2 * np.pi))
-
-    def get_position(self):
-        return self.latitude_deg, self.longitude_deg
-
-    def get_cartesian_coords(self):
-        lat_rad = np.deg2rad(self.latitude_deg)
-        lon_rad = np.deg2rad(self.longitude_deg)
-        r = self.earth_radius + self.altitude
-        x = r * np.cos(lat_rad) * np.cos(lon_rad)
-        y = r * np.cos(lat_rad) * np.sin(lon_rad)
-        z = r * np.sin(lat_rad)
-        return np.array([x, y, z])
-
-    def get_elevation_angle(self, node_lat, node_lon):
-        r_sat = self.cartesian_coords
-        r_node = self._latlon_to_ecef(node_lat, node_lon, 0.0, self.earth_radius)
-
-        vec = r_sat - r_node
-        dot = np.dot(vec, r_node)
-        elev_rad = np.arcsin(dot / (np.linalg.norm(vec) * np.linalg.norm(r_node)))
-        elev_deg = np.rad2deg(elev_rad)
-
-        return elev_deg
-
-    def is_visible(self, node_lat, node_lon):
-        """
-        Computes whether this satellite is visible from a ground node (relay/user).
-        The node must have `.latitude` and `.longitude`.
-        """
-        r_sat = self.cartesian_coords
-        r_node = self._latlon_to_ecef(node_lat, node_lon, 0.0, self.earth_radius)
-
-        vec = r_sat - r_node
-        dot = np.dot(vec, r_node)
-        elev_rad = np.arcsin(dot / (np.linalg.norm(vec) * np.linalg.norm(r_node)))
-        elev_deg = np.rad2deg(elev_rad)
-
-        return elev_deg >= MIN_ELEVATION
 
     @staticmethod
     def _latlon_to_ecef(lat_deg, lon_deg, alt_km, re):
@@ -182,13 +183,6 @@ class Satellite:
     def is_ascending(self):
         return np.cos(self.phase_rad) >= 0
 
-    def storage_shuffle(self):
-        self.storage = deque(sample(self.storage, len(self.storage)))
-
-    # def can_enqueue(self, direction, detail_direction):
-    #     if direction == 'h':
-    #         if detail_direction
-
     def get_load_status(self):
         return [
             self.isl_up_buffer.size / self.isl_up_buffer.capacity,
@@ -196,7 +190,6 @@ class Satellite:
             self.isl_left_buffer.size / self.isl_left_buffer.capacity,
             self.isl_right_buffer.size / self.isl_right_buffer.capacity,
         ]
-
 
 
     def __repr__(self):

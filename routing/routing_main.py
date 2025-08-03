@@ -20,7 +20,7 @@ from utils.walker_constellation import WalkerConstellation
 from utils.loader import load_ground_relays_from_csv, batch_map_nodes, normalize_wrapped_regions, prepare_node_routing_metadata
 from utils.rtpg_mapper import RTPGMapper
 from utils.RTPGGraph import RTPGGraph
-from utils.user_node_generator import generate_users
+from utils.user_node_generator import generate_users, generate_cities
 from utils.csv_maker import csv_write, csv_create
 
 
@@ -50,24 +50,25 @@ def update_rtpg(rtpg, satellites, ground_relays, mapper):
 
     return rtpg
 
-def get_route(rtpg, user, ground_relays):
-    user.connected_sats = []
+def get_route(rtpg, user, ground_relays, n=1):
     rtpg.add_user(user, (user.region_asc, user.region_desc), (user.search_regions_asc, user.search_regions_desc),
                   user.is_in_city)
 
     # User만을 위한 연결만 수행
     rtpg.connect_user_links(user)
-    # if len(user.connected_sats) != len(list(rtpg.G.neighbors(user.node_id))):
-    #     print(user.connected_sats)
-    #     rtpg.show_neighbors(user.node_id)
-    # 최단 경로 찾기
-    dst_id = random.choice(list(ground_relays.keys()))
-    user.destination = dst_id
 
-    route, _ = rtpg.dijkstra_shortest_path(source_id=user.node_id, target_id=ground_relays[user.destination].node_id)
+    # 최단 경로 찾기
+    routes = []
+    for _ in range(n):
+        dst_id = random.choice(list(ground_relays.keys()))
+        user.destination = dst_id
+
+        route = rtpg.dijkstra_shortest_path(source_id=user.node_id, target_id=ground_relays[user.destination].node_id)
+        routes.append(route)
+
     rtpg.G.remove_node(user.node_id)
 
-    return route
+    return routes
 
 def calculate_hop_distance(packet, satellites):
     try:
@@ -104,6 +105,7 @@ def transfer(sequences, next_hops, src_coords, disconnected=None):
 
                 next_coords = next_hop.cartesian_coords
                 pkt.set_propagation_delay(calculate_prop_delay(src_coords, next_coords))
+                pkt.transmission_delay += TRANS_DELAY_ISL
 
                 next_hop.receive_packet(pkt)
                 pkt.curr = next_hop.node_id
@@ -127,6 +129,10 @@ def transfer(sequences, next_hops, src_coords, disconnected=None):
                                 위성->지상: 지상에서 보내줄 다음 위성 노드를 key node로 변경
                                 지상->위성: 위성에서 향할 다음 지상 노드를 ground node로 변경
                                 """
+                                if direction == 4:
+                                    p.transmission_delay += TRANS_DELAY_DOWN
+                                else:
+                                    p.transmission_delay += TRANS_DELAY_UP
                             else:
                                 """패킷 생성 당시엔 있다고 판단된 경로가, 와보니 끊어져있는 상황"""
                                 failed.append(p)
@@ -141,8 +147,8 @@ def transfer(sequences, next_hops, src_coords, disconnected=None):
 
 if __name__ == '__main__':
     header = [
-        "Time (ms)", "User ID", "Destination Relay ID", "Path Length", "Queuing Delay", "Propagation Delay",
-        "Status", "Drop Location", "Drop Latitude", "Drop Longitude", "Drop Region"
+        "Time (ms)", "User ID", "Destination Relay ID", "Path Length", "result", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay",
+        "Status", "Drop Location", "Drop Latitude", "Drop Longitude"
     ]
     filepath = "C:/Users/김태성/PycharmProjects/ground-satellite routing/results/"
     # GSL O
@@ -155,12 +161,12 @@ if __name__ == '__main__':
         failed = []
         dropped = []
 
-        total_users = 5000  # 예시
+        # total_users = 5000  # 예시
         num_of_generated_packets = genertation_rate
 
         dt = TIME_SLOT  # 1 ms
         total_time = TOTAL_TIME  # second
-        # total_time = 20.51  # seconds
+        # total_time = 20.51 # seconds
         steps = int(total_time / dt)
         packet_scope = None
 
@@ -176,7 +182,8 @@ if __name__ == '__main__':
         satellites = constellation.get_all_satellites() # dictionary
 
         ground_relays = load_ground_relays_from_csv(relay_csv_path, N * M)
-        users = generate_users(start_idx=0, total_count=total_users)
+        # users = generate_users(start_idx=0, total_count=total_users)
+        users = generate_cities(start_idx=0)
 
         for gr in ground_relays.values():
             gr = prepare_node_routing_metadata(gr, mapper, 550)
@@ -190,12 +197,6 @@ if __name__ == '__main__':
         """ =============================
                  Time loop 시작
         =============================="""
-        """사용자별 패킷 생성 시간표 정의"""
-        for user in users.values():
-            t = 0
-            while t < total_time:
-                user.packet_generation_times.append(t)
-                t += PACKET_GEN_INTERVAL
 
         """시뮬레이션 타임루프"""
         for i in tqdm(range(steps)):
@@ -203,6 +204,8 @@ if __name__ == '__main__':
             """RTPG 업데이트"""
             if t % 600 == 0 and t != 0:
                 rtpg.reset_graph()
+                for s in satellites.values():
+                    s.update_lat_lon_for_RTPG()
                 rtpg = update_rtpg(rtpg, satellites, ground_relays, mapper)
 
             """ 패킷 생성
@@ -211,16 +214,13 @@ if __name__ == '__main__':
             3. 중계 노드 중 하나를 destination으로 하여 rtpg기반 다익스트라 알고리즘으로 경로 형성. 패킷에 경로 정보 입력
             4. 키노드 추출 및 키노드까지의 최단 홉 거리 (수직+수평)계산은 로직 상 안함
             """
-            selected_users = random.sample(list(users.values()), 100)
+            selected_users = random.choices(list(users.values()), k=100)
             for user in selected_users:
-                for _ in range(num_of_generated_packets):
+                paths = get_route(rtpg, user, ground_relays, n = num_of_generated_packets)
+                for path in paths:
                     new_packet = Packet(t)
-                    path = get_route(rtpg, user, ground_relays)
-                    new_packet.set_path_info(path)
+                    new_packet.set_path_info(path[0])
                     user.receive_packet(new_packet)
-                    # if packet_scope == None:
-                    #     packet_scope = new_packet
-                    # print(new_packet)
 
             """
             각 패킷은 아래의 속성을 가짐 
@@ -231,7 +231,7 @@ if __name__ == '__main__':
             시뮬레이션은 아래 세 페이즈로 구성됨
 
             1. 전송 페이즈: 방향 큐에 있는 패킷을 일괄적으로 다음 홉으로 전송하는 과정 (라우팅 알고리즘은 이미 수행 된 후)
-            2. 드롭 페이즈: 전송 후 큐의 용량을 초과한 패킷에 대한 드롭처리
+            2. 실패/드롭 페이즈: 전송 후 큐의 용량을 초과한 패킷에 대한 드롭처리
             3. 라우팅 페이즈: 각 방향으로부터 전송 받은 패킷에 대하여 라우팅 알고리즘 수행(방향결정) 후 각 방향 큐에 enqueue
             # 예외처리
             예외: 사용자-위성-지상노드 순으로 순차적으로 전송과 라우팅 페이즈를 진행함에 따라서 드롭되는 패킷에 우선순위가 발생
@@ -277,6 +277,9 @@ if __name__ == '__main__':
                 else:
                     continue
 
+            """실패 페이즈"""
+            """경로 설정 과정에서 위성-지상 노드 링크 끊김으로 인한 전송 실패"""
+
             if failed:
                 print(f"failed packets: {len(failed)}")
             while failed:
@@ -289,7 +292,7 @@ if __name__ == '__main__':
                         end_node = ground_relays[p.curr]
                 else:
                     end_node = satellites[p.curr]
-                # p.end(t, 'inconsistency', end_node.node_id, end_node.latitude_deg, end_node.longitude_deg)
+                p.end(t, 'inconsistency', end_node.node_id, end_node.latitude_deg, end_node.longitude_deg)
                 # print(end_node.connected_sats)
                 # p.show_detailed()
                 results.append(p)
@@ -299,18 +302,8 @@ if __name__ == '__main__':
 
             for s in satellites.values():
                 dropped += s.drop_packet()
-            if t % 100 == 0 and t != 0:
-                total_load_data = []
-                orbit_data = []
-                for s in satellites.values():
-                    if s.orbit_idx != 0 and s.sat_idx_in_orbit % M == 0:
-                        total_load_data.append(orbit_data)
-                        # print(orbit_data)
-                        orbit_data = []
-                    orbit_data.append(s.get_load_status())
-                total_load_data.append(orbit_data)
-                load_heatmap(num_of_generated_packets, t, N, M, total_load_data)
-
+            if dropped:
+                print(f"dropped packets: {len(dropped)}")
             while dropped:
                 p = dropped.pop(0)
                 end_node = satellites[p.curr]
@@ -318,7 +311,17 @@ if __name__ == '__main__':
                 # print(2)
                 results.append(p)
 
-
+            # if t % 100 == 0 and t != 0:
+            #     total_load_data = []
+            #     orbit_data = []
+            #     for s in satellites.values():
+            #         if s.orbit_idx != 0 and s.sat_idx_in_orbit % M == 0:
+            #             total_load_data.append(orbit_data)
+            #             # print(orbit_data)
+            #             orbit_data = []
+            #         orbit_data.append(s.get_load_status())
+            #     total_load_data.append(orbit_data)
+            #     load_heatmap(num_of_generated_packets, t, N, M, total_load_data)
             """라우팅 방향 결정 & 큐 삽입 페이즈"""
             """
             사용자:
@@ -348,8 +351,6 @@ if __name__ == '__main__':
 
 
             for s in satellites.values():
-                # if s.storage:
-                #     s.storage_shuffle() # 패킷 도착 순서에 랜덤성 부여
                 while s.storage:
                     packet = s.storage.popleft()
                     if packet.curr == packet.key_node:
@@ -381,8 +382,6 @@ if __name__ == '__main__':
                     s.enqueue_packet(direction, packet)
 
             for g in ground_relays.values():
-                # if g.storage:
-                #     g.storage_shuffle()
                 while g.storage:
                     packet = g.storage.popleft()
                     if packet.curr == packet.destination: # 도착
@@ -408,20 +407,30 @@ if __name__ == '__main__':
                 sats = (satellites[node_id] for node_id in g.connected_sats if node_id not in g.disconnected)
                 for s in sats:
                     if not s.is_visible(g.latitude_deg, g.longitude_deg):
-                        s.disconnecetd.add(g.node_id)
-                        g.disconnecetd.add(s.node_id)
-            # print(len(results))
+                        print(121212)
+                        s.disconnected.add(g.node_id)
+                        g.disconnected.add(s.node_id)
+
+            for u in users.values():
+                sats = (satellites[node_id] for node_id in u.connected_sats if node_id not in u.disconnected)
+                for s in sats:
+                    if not s.is_visible(u.latitude_deg, u.longitude_deg):
+                        print(2323223)
+                        s.disconnected.add(u.node_id)
+                        u.disconnected.add(s.node_id)
+
             if len(results) >= 100:
                 rows = []
                 while results:
                     packet = results.pop(0)
                     common_data = [packet.start_at, packet.source, packet.destination, len(packet.result)]
                     if packet.success:
-                        drop_data = [sum(packet.queuing_delays), packet.propagation_delays,
+                        drop_data = [packet.result , packet.queuing_delays,
+                                     sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay,
                                      'success',
                                      None, None, None]
                     else:
-                        drop_data = [
+                        drop_data = [packet.result , packet.queuing_delays,
                             sum(packet.queuing_delays[:-1]), packet.propagation_delays,
                             'inconsistency' if packet.inconsistency else 'drop',
                             f"at {packet.result[-1]}",
@@ -430,53 +439,24 @@ if __name__ == '__main__':
                     row = common_data + drop_data
                     rows.append(row)
                 csv_write(rows, filepath, filename)
-
+            # generation rate에 대한 for문 종료
+        #나머지 데이터 입력
         rows = []
         while results:
             packet = results.pop(0)
-            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), packet]
+            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result)]
             if packet.success:
-                drop_data = ['success',
+                drop_data = [packet.result, packet.queuing_delays,
+                             sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay,
+                             'success',
                              None, None, None]
             else:
-                drop_data = [
-                    'inconsistency' if packet.inconsistency else 'drop',
-                    f"at {packet.result[-1]}",
-                    packet.ended_lat, packet.ended_lon
-                ]
+                drop_data = [packet.result, packet.queuing_delays,
+                             sum(packet.queuing_delays[:-1]), packet.propagation_delays,
+                             'inconsistency' if packet.inconsistency else 'drop',
+                             f"at {packet.result[-1]}",
+                             packet.ended_lat, packet.ended_lon
+                             ]
             row = common_data + drop_data
             rows.append(row)
         csv_write(rows, filepath, filename)
-        # # --- 루프 종료 후 CSV 저장 ---
-        # csv_path = "simulation_results_detailed_with_GSL_" + str(genertation_rate) + ".csv"
-        #
-        # with open(csv_path, mode='w', newline='') as f:
-        #     writer = csv.writer(f)
-        #     writer.writerow([
-        #         "Time (ms)", "User ID", "Destination Relay ID", "Path Length",
-        #         "Status", "Drop Location", "Drop Latitude", "Drop Longitude"
-        #     ])
-        #
-        #     for row in log_results:
-        #         time_ms, user_id, relay_id, path_len, status, drop_loc = row
-        #
-        #         if "Satellite" in drop_loc:
-        #             # 위성 ID 추출
-        #             sat_id = int(drop_loc.split()[1])
-        #             sat_obj = next(sat for sat in satellites if sat.node_id == sat_id)
-        #             lat, lon = sat_obj.get_position()
-        #             region = get_congestion_region(lat, lon)
-        #         elif "(업링크 실패)" in drop_loc or "(우회 실패)" in drop_loc:
-        #             parts = drop_loc.split()
-        #             sat_id = int(parts[1])
-        #             sat_obj = next(sat for sat in satellites if sat.node_id == sat_id)
-        #             lat, lon = sat_obj.get_position()
-        #             region = get_congestion_region(lat, lon)
-        #         else:
-        #             lat, lon, region = "N/A", "N/A", "N/A"
-        #
-        #         writer.writerow([
-        #             time_ms, user_id, relay_id, path_len, status, drop_loc, lat, lon, region
-        #         ])
-        #
-        # print(f"\n✅ 상세 결과가 {csv_path}로 저장되었습니다.")

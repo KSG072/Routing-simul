@@ -151,24 +151,24 @@ class RTPGGraph:
 
                     if P_min < P_max:
                         if R_min < R_max:
-                            if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                            if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
                                 self.G.add_edge(relay_id, sat_id, type="gsl")
                                 relay.link_to_sat(sat_id)
                                 sat.link_to_ground(relay_id)
                         else:
-                            if P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                            if P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
                                 self.G.add_edge(relay_id, sat_id, type="gsl")
                                 relay.link_to_sat(sat_id)
                                 sat.link_to_ground(relay_id)
                     else:
                         if R_min < R_max:
-                            if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                            if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
                                 self.G.add_edge(relay_id, sat_id, type="gsl")
                                 relay.link_to_sat(sat_id)
                                 sat.link_to_ground(relay_id)
                         else:
                             if (P_min <= P_sat or P_sat <= P_max) and (
-                                    R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg):
+                                    R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
                                 self.G.add_edge(relay_id, sat_id, type="gsl")
                                 relay.link_to_sat(sat_id)
                                 sat.link_to_ground(relay_id)
@@ -197,20 +197,20 @@ class RTPGGraph:
                 sat = sat_data["obj"]
                 if P_min <= P_max:
                     if R_min <= R_max:
-                        if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(user.latitude_deg, user.longitude_deg):
+                        if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(user.latitude_deg, user.longitude_deg, in_graph=True):
                             candidates_id_pool.append(sat_id)
                             candidates_pool[sat_id] = sat
                     else:
-                        if  P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(user.latitude_deg, user.longitude_deg):
+                        if  P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(user.latitude_deg, user.longitude_deg, in_graph=True):
                             candidates_id_pool.append(sat_id)
                             candidates_pool[sat_id] = sat
                 else:
                     if R_min <= R_max:
-                        if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(user.latitude_deg, user.longitude_deg):
+                        if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(user.latitude_deg, user.longitude_deg, in_graph=True):
                             candidates_id_pool.append(sat_id)
                             candidates_pool[sat_id] = sat
                     else:
-                        if  (P_min <= P_sat or P_sat <= P_max) and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(user.latitude_deg, user.longitude_deg):
+                        if  (P_min <= P_sat or P_sat <= P_max) and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(user.latitude_deg, user.longitude_deg, in_graph=True):
                             candidates_id_pool.append(sat_id)
                             candidates_pool[sat_id] = sat
 

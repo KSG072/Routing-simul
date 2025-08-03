@@ -27,3 +27,20 @@ def generate_users(start_idx, total_count):
         node_id += 1
 
     return users
+
+def generate_cities(start_idx):
+    cities = {}
+    node_id = start_idx
+
+    for area in CONGESTION_AREAS:
+        location = area["city"]
+        is_in_city = True
+        latitude = area["lat"]
+        longitude = area["lon"]
+
+        city = UserNode(f"{location}-{node_id}", latitude, longitude)
+        city.set_userinfo(is_in_city, location)
+        cities[city.node_id] = city
+        node_id += 1
+
+    return cities

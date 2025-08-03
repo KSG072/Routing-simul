@@ -40,6 +40,7 @@ class WalkerConstellation:
                 phase = (2 * np.pi * m / self.M + self.delta_f * n) % (2 * np.pi)
                 sat.set_position_from_phase(phase, lon_asc_node)
                 sat.cartesian_coords = sat.get_cartesian_coords()
+                sat.update_lat_lon_for_RTPG()
                 orbit.add_satellite(sat)
                 self.satellites[sat.node_id] = sat
 

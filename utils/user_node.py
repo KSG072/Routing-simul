@@ -30,6 +30,7 @@ class UserNode:
         self.packet_generation_times = []  # 초 단위 리스트
         self.storage = deque()
         self.connected_sats = []
+        self.disconnected = set()
 
         self.gsl_up_buffers = {}
 
@@ -47,9 +48,10 @@ class UserNode:
         return (self.latitude_deg, self.longitude_deg)
 
     def link_to_sat(self, sat_id):
-        self.connected_sats.append(sat_id)
-        new_buffer = Buffer('up')
-        self.gsl_up_buffers[sat_id] = new_buffer
+        if sat_id not in self.connected_sats:
+            self.connected_sats.append(sat_id)
+            new_buffer = Buffer('up')
+            self.gsl_up_buffers[sat_id] = new_buffer
 
     def get_cartesian_coords(self):
         """
