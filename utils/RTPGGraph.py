@@ -1,6 +1,4 @@
 from collections import defaultdict
-
-from shapely.geometry import Point
 import networkx as nx
 import numpy as np
 from copy import deepcopy

@@ -1,6 +1,4 @@
 import numpy as np
-from fontTools.misc.textTools import caselessSort
-from vispy.gloo.glir import glTexSubImage1D
 from collections import deque
 from routing.buffer_queue import Buffer
 

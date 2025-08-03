@@ -150,13 +150,13 @@ if __name__ == '__main__':
         "Time (ms)", "User ID", "Destination Relay ID", "Path Length", "result", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay",
         "Status", "Drop Location", "Drop Latitude", "Drop Longitude"
     ]
-    filepath = "C:/Users/김태성/PycharmProjects/ground-satellite routing/results/"
+    filepath = "../results"
     # GSL O
     for genertation_rate in GENERATION_RATE_LIST:
         filename = "seogwon_results_with_GSL_" + str(genertation_rate) + ".csv"
         csv_create(header, filepath, filename)
 
-        relay_csv_path = 'C:/Users/김태성/PycharmProjects/ground-satellite routing/parameters/Ground_Relay_Coordinates.csv'
+        relay_csv_path = '../parameters/Ground_Relay_Coordinates.csv'
         results = []
         failed = []
         dropped = []
@@ -197,6 +197,10 @@ if __name__ == '__main__':
         """ =============================
                  Time loop 시작
         =============================="""
+        ended = 0
+        succeeded = 0
+        drop_cnt = 0
+        fail_cnt = 0
 
         """시뮬레이션 타임루프"""
         for i in tqdm(range(steps)):
@@ -206,7 +210,7 @@ if __name__ == '__main__':
                 rtpg.reset_graph()
                 for s in satellites.values():
                     s.update_lat_lon_for_RTPG()
-                rtpg = update_rtpg(rtpg, satellites, ground_relays, mapper)
+                rtpg = update_rtpg(rtpg, satellites.values(), ground_relays.values(), mapper)
 
             """ 패킷 생성
             1. 해당 타임 슬롯에 대해서 패킷을 생성할 사용자를 선택
@@ -214,7 +218,7 @@ if __name__ == '__main__':
             3. 중계 노드 중 하나를 destination으로 하여 rtpg기반 다익스트라 알고리즘으로 경로 형성. 패킷에 경로 정보 입력
             4. 키노드 추출 및 키노드까지의 최단 홉 거리 (수직+수평)계산은 로직 상 안함
             """
-            selected_users = random.choices(list(users.values()), k=100)
+            selected_users = random.choices(list(users.values()), k=N_k)
             for user in selected_users:
                 paths = get_route(rtpg, user, ground_relays, n = num_of_generated_packets)
                 for path in paths:
@@ -281,7 +285,7 @@ if __name__ == '__main__':
             """경로 설정 과정에서 위성-지상 노드 링크 끊김으로 인한 전송 실패"""
 
             if failed:
-                print(f"failed packets: {len(failed)}")
+                fail_cnt += len(failed)
             while failed:
                 # print(failed)
                 p = failed.pop(0)
@@ -303,7 +307,7 @@ if __name__ == '__main__':
             for s in satellites.values():
                 dropped += s.drop_packet()
             if dropped:
-                print(f"dropped packets: {len(dropped)}")
+                drop_cnt += len(dropped)
             while dropped:
                 p = dropped.pop(0)
                 end_node = satellites[p.curr]
@@ -356,9 +360,10 @@ if __name__ == '__main__':
                     if packet.curr == packet.key_node:
                         packet.next_key_node_id()
                         if packet.was_on_ground: # 지상으로부터 받은 패킷 -> 키노드, 잔여 홉거리 설정
-                            calculate_hop_distance(packet, satellites) # 자동 key node 변환
+                            calculate_hop_distance(packet, satellites)
                             packet.was_on_ground = False
-                        else: # 지상으로 가야할 패킷
+                        """지상에서 올라온 패킷이 바로 지상으로 가야할 경우"""
+                        if packet.curr == packet.key_node: # 지상으로 가야할 패킷
                             """우회가 필요할 경우 재설정된 keynode을 따라 홉 수 재설정 함수 내에서 packet 수정 거치고 나옴"""
                             try:
                                 family = (satellites[node_id] for node_id in ground_relays[packet.ground_node].connected_sats)
@@ -388,6 +393,7 @@ if __name__ == '__main__':
                         end_node = ground_relays[packet.curr]
                         packet.end(t, 'success', end_node.node_id, end_node.latitude_deg, end_node.longitude_deg)
                         results.append(packet)
+                        succeeded += 1
                     else: # 다시 위성으로
                         packet.was_on_ground = True
                         packet.next_ground_node_id()
@@ -407,7 +413,7 @@ if __name__ == '__main__':
                 sats = (satellites[node_id] for node_id in g.connected_sats if node_id not in g.disconnected)
                 for s in sats:
                     if not s.is_visible(g.latitude_deg, g.longitude_deg):
-                        print(121212)
+                        # print(121212)
                         s.disconnected.add(g.node_id)
                         g.disconnected.add(s.node_id)
 
@@ -415,12 +421,13 @@ if __name__ == '__main__':
                 sats = (satellites[node_id] for node_id in u.connected_sats if node_id not in u.disconnected)
                 for s in sats:
                     if not s.is_visible(u.latitude_deg, u.longitude_deg):
-                        print(2323223)
+                        # print(2323223)
                         s.disconnected.add(u.node_id)
                         u.disconnected.add(s.node_id)
 
             if len(results) >= 100:
                 rows = []
+                ended += len(results)
                 while results:
                     packet = results.pop(0)
                     common_data = [packet.start_at, packet.source, packet.destination, len(packet.result)]
@@ -442,6 +449,7 @@ if __name__ == '__main__':
             # generation rate에 대한 for문 종료
         #나머지 데이터 입력
         rows = []
+        ended += len(results)
         while results:
             packet = results.pop(0)
             common_data = [packet.start_at, packet.source, packet.destination, len(packet.result)]
@@ -460,3 +468,10 @@ if __name__ == '__main__':
             row = common_data + drop_data
             rows.append(row)
         csv_write(rows, filepath, filename)
+        print("\n--- Simulation Summary ---")
+        print(f"Generated: {steps*N_k*genertation_rate}")
+        print(f"Ended:     {ended}")
+        print(f"Succeeded: {succeeded}")
+        print(f"Failed:    {fail_cnt}")
+        print(f"Dropped:   {drop_cnt}")
+        print("--------------------------")

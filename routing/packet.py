@@ -98,7 +98,7 @@ class Packet:
             self.ground_node = self.ground_nodes.popleft()
             return self.ground_node
         else:
-            return None
+            return self.ground_node
 
     def set_remaining_hops(self, h, v):
         self.remaining_h_hops = h
