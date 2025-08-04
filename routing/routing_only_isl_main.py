@@ -31,7 +31,7 @@ def get_congestion_region(lat, lon):
             return area["city"]
     return "Others"
 
-def update_rtpg(rtpg, satellites, ground_relays, mapper):
+def update_rtpg(rtpg, satellites, mapper):
     sat_region_indices = mapper.batch_map(satellites)
 
     # 위성 등록
@@ -39,11 +39,6 @@ def update_rtpg(rtpg, satellites, ground_relays, mapper):
         sat.connected_grounds = []
         rtpg.add_satellite(sat, region)
         sat.region = region
-
-    # Ground Relay 등록
-    for gr in ground_relays:
-        gr.connected_sats = []
-        rtpg.add_relay(gr, (gr.region_asc, gr.region_desc), (gr.search_regions_asc, gr.search_regions_desc))
 
     rtpg.connect_isl_links()
     rtpg.connect_ground_links()
@@ -62,9 +57,14 @@ def get_route(rtpg, user, ground_relays, n=1):
     for _ in range(n):
         dst_id = random.choice(list(ground_relays.keys()))
         user.destination = dst_id
+        dst = ground_relays[dst_id]
+
+        rtpg.add_relay(dst, (dst.region_asc, dst.region_desc), (dst.search_regions_asc, dst.search_regions_desc))
+        rtpg.connect_node_links(dst)
 
         route = rtpg.dijkstra_shortest_path(source_id=user.node_id, target_id=ground_relays[user.destination].node_id)
         routes.append(route)
+        rtpg.G.remove_node(dst_id)
 
     rtpg.G.remove_node(user.node_id)
 
@@ -153,7 +153,7 @@ if __name__ == '__main__':
     filepath = "../results"
     # GSL O
     for genertation_rate in GENERATION_RATE_LIST:
-        filename = "seogwon_results_with_GSL_" + str(genertation_rate) + ".csv"
+        filename = "seogwon_results_only_ISL_" + str(genertation_rate) + ".csv"
         csv_create(header, filepath, filename)
 
         relay_csv_path = '../parameters/Ground_Relay_Coordinates.csv'
@@ -191,7 +191,7 @@ if __name__ == '__main__':
             user = prepare_node_routing_metadata(user, mapper, 550)
 
         """초기 RTPG 생성"""
-        rtpg = update_rtpg(RTPGGraph(N=N, M=M, F=F), satellites.values(), ground_relays.values(), mapper)
+        rtpg = update_rtpg(RTPGGraph(N=N, M=M, F=F), satellites.values(), mapper)
         rtpg.integrity_check()
 
         """ =============================
@@ -210,7 +210,7 @@ if __name__ == '__main__':
                 rtpg.reset_graph()
                 for s in satellites.values():
                     s.update_lat_lon_for_RTPG()
-                rtpg = update_rtpg(rtpg, satellites.values(), ground_relays.values(), mapper)
+                rtpg = update_rtpg(rtpg, satellites.values(), mapper)
 
             """ 패킷 생성
             1. 해당 타임 슬롯에 대해서 패킷을 생성할 사용자를 선택
@@ -281,26 +281,6 @@ if __name__ == '__main__':
                 else:
                     continue
 
-            """실패 페이즈"""
-            """경로 설정 과정에서 위성-지상 노드 링크 끊김으로 인한 전송 실패"""
-
-            if failed:
-                fail_cnt += len(failed)
-            while failed:
-                # print(failed)
-                p = failed.pop(0)
-                if p.was_on_ground:
-                    if p.curr == p.source:
-                        end_node = users[p.curr]
-                    else:
-                        end_node = ground_relays[p.curr]
-                else:
-                    end_node = satellites[p.curr]
-                p.end(t, 'inconsistency', end_node.node_id, end_node.latitude_deg, end_node.longitude_deg)
-                # print(end_node.connected_sats)
-                # p.show_detailed()
-                results.append(p)
-
             """드롭 페이즈"""
             """전송 후 각 버퍼 큐에 남은 패킷 중 capacity를 초과한 것에 대한 tail-drop"""
 
@@ -343,6 +323,7 @@ if __name__ == '__main__':
             for u in users.values():
                 while u.storage:
                     packet = u.storage.popleft()
+                    packet.ttl -= 1
                     if packet.key_node not in u.connected_sats:
                         print('tq')
                     else:
@@ -353,54 +334,94 @@ if __name__ == '__main__':
                         u.enqueue_packet(direction, packet)
                         # u.enqueue_packet(packet.key_node, packet) # no 로드밸런싱
 
-
             for s in satellites.values():
                 while s.storage:
                     packet = s.storage.popleft()
+                    if packet.ttl >= 0:
+                        packet.ttl -= 1
+                    else:
+                        failed.append(packet)
                     if packet.curr == packet.key_node:
                         packet.next_key_node_id()
-                        if packet.was_on_ground: # 지상으로부터 받은 패킷 -> 키노드, 잔여 홉거리 설정
+                        if packet.was_on_ground:  # 지상으로부터 받은 패킷 -> 키노드, 잔여 홉거리 설정
                             calculate_hop_distance(packet, satellites)
                             packet.was_on_ground = False
-                        """지상에서 올라온 패킷이 바로 지상으로 가야할 경우"""
-                        if packet.curr == packet.key_node: # 지상으로 가야할 패킷
+                            if packet.curr == packet.key_node:
+                                packet.next_key_node_id()
+                                family = (satellites[node_id] for node_id in
+                                          ground_relays[packet.ground_node].connected_sats)
+                                need_detour, packet, direction = sat_to_ground_forwarding(s, packet, family)
+                                if need_detour:
+                                    packet.key_nodes.appendleft(packet.key_node)  # 다시 잠시 넣어둡니다.,...
+                                    packet.set_key_node(direction)  # 새로운 keynode 설정
+                                    calculate_hop_distance(packet, satellites)
+                                else:
+                                    s.enqueue_packet(direction, packet)
+                                    continue  # 지상 큐에 삽입 후 다음 패킷 처리
+                        else:  # 지상으로 가야할 패킷
                             """우회가 필요할 경우 재설정된 keynode을 따라 홉 수 재설정 함수 내에서 packet 수정 거치고 나옴"""
                             try:
-                                family = (satellites[node_id] for node_id in ground_relays[packet.ground_node].connected_sats)
+                                family = (satellites[node_id] for node_id in
+                                          ground_relays[packet.ground_node].connected_sats)
                             except KeyError:
                                 packet.show_detailed()
                                 exit()
                             need_detour, packet, direction = sat_to_ground_forwarding(s, packet, family)
                             if need_detour:
-                                packet.key_nodes.appendleft(packet.key_node) # 다시 잠시 넣어둡니다.,...
-                                packet.set_key_node(direction) # 새로운 keynode 설정
+                                packet.key_nodes.appendleft(packet.key_node)  # 다시 잠시 넣어둡니다.,...
+                                packet.set_key_node(direction)  # 새로운 keynode 설정
                                 calculate_hop_distance(packet, satellites)
                             else:
                                 s.enqueue_packet(direction, packet)
-                                # _ = packet.get_next_key_node_id() # 여기서 키노드 바꾸면 전송페이즈에서 뻑남
-                                continue # 지상 큐에 삽입 후 다음 패킷 처리
+                                continue  # 지상 큐에 삽입 후 다음 패킷 처리
                     # 단순 위성 포워딩 (잔여 홉 있음)
                     horizontal = satellites[s.isl_left if packet.remaining_h_hops < 0 else s.isl_right]
                     vertical = satellites[s.isl_down if packet.remaining_v_hops < 0 else s.isl_up]
                     """위성-위성 라우팅 알고리즘 적용 부분 (Queuing delay는 여기서 계산됨)"""
-                    direction = sat_to_sat_forwarding(s, horizontal, vertical, packet) # 0:up, 1:down, 2:left, 3:right
+                    direction = sat_to_sat_forwarding(s, horizontal, vertical, packet)  # 0:up, 1:down, 2:left, 3:right
                     s.enqueue_packet(direction, packet)
 
             for g in ground_relays.values():
                 while g.storage:
                     packet = g.storage.popleft()
-                    if packet.curr == packet.destination: # 도착
+                    if packet.curr == packet.destination:  # 도착
                         end_node = ground_relays[packet.curr]
                         packet.end(t, 'success', end_node.node_id, end_node.latitude_deg, end_node.longitude_deg)
                         results.append(packet)
                         succeeded += 1
-                    else: # 다시 위성으로
+                    else:  # 다시 위성으로
+                        if packet.ttl >= 0:
+                            packet.ttl -= 1
+                        else:
+                            failed.append(packet)
                         packet.was_on_ground = True
                         packet.next_ground_node_id()
                         family = (satellites[node_id] for node_id in ground_relays[packet.ground_node].connected_sats)
                         """지상-위성 라우팅 알고리즘 적용 부분"""
                         packet, direction = ground_to_sat_forwarding(g, packet, family)
                         g.enqueue_packet(direction, packet)
+
+            """실패 페이즈"""
+            """경로 설정 과정에서 위성-지상 노드 링크 끊김으로 인한 전송 실패"""
+
+            if failed:
+                fail_cnt += len(failed)
+            while failed:
+                # print(failed)
+                p = failed.pop(0)
+                if p.was_on_ground:
+                    if p.curr == p.source:
+                        end_node = users[p.curr]
+                    else:
+                        end_node = ground_relays[p.curr]
+                else:
+                    end_node = satellites[p.curr]
+                if p.ttl > 0:
+                    p.end(t, 'inconsistency', end_node.node_id, end_node.latitude_deg, end_node.longitude_deg)
+                else:
+                    p.end(t, 'expired', end_node.node_id, end_node.latitude_deg, end_node.longitude_deg)# print(end_node.connected_sats)
+                # p.show_detailed()
+                results.append(p)
 
             """위성 공전"""
             for s in satellites.values():
@@ -413,7 +434,7 @@ if __name__ == '__main__':
                 sats = (satellites[node_id] for node_id in g.connected_sats if node_id not in g.disconnected)
                 for s in sats:
                     if not s.is_visible(g.latitude_deg, g.longitude_deg):
-                        # print(121212)
+                        print(121212)
                         s.disconnected.add(g.node_id)
                         g.disconnected.add(s.node_id)
 
@@ -421,7 +442,7 @@ if __name__ == '__main__':
                 sats = (satellites[node_id] for node_id in u.connected_sats if node_id not in u.disconnected)
                 for s in sats:
                     if not s.is_visible(u.latitude_deg, u.longitude_deg):
-                        # print(2323223)
+                        print(2323223)
                         s.disconnected.add(u.node_id)
                         u.disconnected.add(s.node_id)
 
@@ -434,12 +455,12 @@ if __name__ == '__main__':
                     if packet.success:
                         drop_data = [packet.result , packet.queuing_delays,
                                      sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay,
-                                     'success',
+                                     packet.state,
                                      None, None, None]
                     else:
                         drop_data = [packet.result , packet.queuing_delays,
                             sum(packet.queuing_delays[:-1]), packet.propagation_delays,
-                            'inconsistency' if packet.inconsistency else 'drop',
+                            packet.state,
                             f"at {packet.result[-1]}",
                             packet.ended_lat, packet.ended_lon
                         ]
@@ -456,12 +477,12 @@ if __name__ == '__main__':
             if packet.success:
                 drop_data = [packet.result, packet.queuing_delays,
                              sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay,
-                             'success',
+                             packet.state,
                              None, None, None]
             else:
                 drop_data = [packet.result, packet.queuing_delays,
                              sum(packet.queuing_delays[:-1]), packet.propagation_delays,
-                             'inconsistency' if packet.inconsistency else 'drop',
+                             packet.state,
                              f"at {packet.result[-1]}",
                              packet.ended_lat, packet.ended_lon
                              ]

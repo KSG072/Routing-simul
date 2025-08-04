@@ -21,7 +21,7 @@ def split_csv_by_rows(file_path, chunk_size):
 # 사용 예시
 if __name__ == '__main__':
     target = [
-        20
+        34
     ]
     for index in target:
         filename = f"seogwon_results_with_GSL_{index}.csv"

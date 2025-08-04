@@ -6,7 +6,7 @@
 key_nodes는 [위성0, 위성1, 위성2, 위성3]이 됨
 """
 from collections import deque
-
+from parameters.PARAMS import TTL
 
 def extract_key_nodes(path):
     key_nodes = deque()
@@ -61,6 +61,7 @@ class Packet:
         self.ended_lat = None
         self.ended_lon = None
         self.inconsistency = False
+        self.ttl = TTL
 
         self.remaining_v_hops = None # curr == key_node & was_on_ground일 때, storage 들어갈 때 바뀜
         self.remaining_h_hops = None # curr == key_node & was_on_ground일 때, storage 들어갈 때 바뀜
@@ -70,7 +71,7 @@ class Packet:
     def end(self, t, state, end_node_id, lat, lon):
         self.end_at = t
         self.success = True if state == 'success' else False
-        self.inconsistency = True if state == 'inconsistency' else False
+        self.state = state
         self.dropped_node = end_node_id
         self.ended_lat, self.ended_lon = lat, lon
 

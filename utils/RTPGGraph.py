@@ -230,20 +230,52 @@ class RTPGGraph:
 
 
 
-    def connect_node_links(self, node_id, type):
-        node_data = self.G.nodes[node_id]
-        node = node_data["obj"]
-        P_min, R_min, P_max, R_max = node_data["search_region"]
+    def connect_node_links(self, relay):
+        """
+                GSL 링크 연결 (relay 기준, ASC/DESC 포함)
+                - search_region은 이미 P_min < P_max, R_min < R_max 로 정규화되어 있음
+                """
+        satellites = {
+            nid: data for nid, data in self.G.nodes(data=True)
+            if data["type"] == "satellite"
+        }
 
-        for sid, sdata in self.G.nodes(data=True):
-            if sdata["type"] != "satellite":
-                continue
+        for search_region in (relay.search_regions_asc, relay.search_regions_desc):
+            P_min, R_min, P_max, R_max = search_region
 
-            sat = sdata["obj"]
+            for sat_id, sat_data in satellites.items():
+                P_sat, R_sat = sat_data["position"]
+                sat = sat_data["obj"]
 
-            P, R = sdata["position"]
-            if P_min <= P <= P_max and R_min <= R <= R_max and sat.is_visible(node):
-                self.G.add_edge(node_id, sid, type=type)
+                if P_min < P_max:
+                    if R_min < R_max:
+                        if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(
+                                relay.latitude_deg, relay.longitude_deg, in_graph=True):
+                            self.G.add_edge(relay.node_id, sat_id, type="gsl")
+                            relay.link_to_sat(sat_id)
+                            sat.link_to_ground(relay.node_id)
+                    else:
+                        if P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(
+                                relay.latitude_deg, relay.longitude_deg, in_graph=True):
+                            self.G.add_edge(relay.node_id, sat_id, type="gsl")
+                            relay.link_to_sat(sat_id)
+                            sat.link_to_ground(relay.node_id)
+                else:
+                    if R_min < R_max:
+                        if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(
+                                relay.latitude_deg, relay.longitude_deg, in_graph=True):
+                            self.G.add_edge(relay.node_id, sat_id, type="gsl")
+                            relay.link_to_sat(sat_id)
+                            sat.link_to_ground(relay.node_id)
+                    else:
+                        if (P_min <= P_sat or P_sat <= P_max) and (
+                                R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg,
+                                                                                     relay.longitude_deg,
+                                                                                     in_graph=True):
+                            self.G.add_edge(relay.node_id, sat_id, type="gsl")
+                            relay.link_to_sat(sat_id)
+                            sat.link_to_ground(relay.node_id)
+
 
     def dijkstra_shortest_path(self, source_id, target_id):
         """
@@ -526,7 +558,6 @@ class RTPGGraph:
         for s_id, data in satellites.items():
             p, r = data["position"]
             checker[r][p] += 1
-        print()
         for row in checker:
             for item in row:
                 if item == 1:

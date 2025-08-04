@@ -62,7 +62,7 @@ def analyze_files(base_name, indices, directory='.'):
     plt.figure()
     plt.plot(x_ticks, stats["path_length_avg"], marker='o', color='orange', label='Average')
     plt.plot(x_ticks, stats["path_length_min"], marker='^', linestyle='--', color='green', label='Min')
-    plt.plot(x_ticks, stats["path_length_max"], marker='v', linestyle='--', color='red', label='Max')
+    # plt.plot(x_ticks, stats["path_length_max"], marker='v', linestyle='--', color='red', label='Max')
     plt.title("Path Length")
     plt.xlabel(r"$N_{p}$")
     plt.ylabel("Path Length")
@@ -104,5 +104,5 @@ def analyze_files(base_name, indices, directory='.'):
 
 # 사용 예시
 if __name__ == '__main__':
-    indices = (2, 6, 10, 14, 18, 22, 26, 30)
+    indices = (2, 6, 10, 14, 18, 22, 26, 30, 34)
     analyze_files(base_name='seogwon_results_with_GSL_', indices=indices)
