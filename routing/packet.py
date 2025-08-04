@@ -92,7 +92,7 @@ class Packet:
             self.key_node = self.key_nodes.popleft()
             return self.key_node
         else:
-            return None
+            return self.key_node
 
     def next_ground_node_id(self):
         if self.ground_nodes:

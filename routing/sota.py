@@ -112,5 +112,5 @@ def ground_to_sat_forwarding(cur, packet, family):
             detour_key_node = min(candidates, key=lambda sat: cur.gsl_up_buffers[sat.node_id].size)
             packet.set_key_node(detour_key_node.node_id)
             packet.queuing_delays.append((cur.gsl_up_buffers[detour_key_node.node_id].size*PACKET_SIZE_BITS/(TAU*SGL_KA_UPLINK)))
-        return packet, packet.key_node.node_id
+        return packet, packet.key_node
 
