@@ -9,6 +9,7 @@ class RTPGGraph:
         self.M = M  # Number of regions in R direction
         self.F = F  # Phasing factor
         self.G = nx.Graph()
+        self.ground_relays_set = set()
 
     def add_satellite(self, satellite, region):
         """
@@ -30,6 +31,7 @@ class RTPGGraph:
             search_region=search_region,
             obj=relay
         )
+        self.ground_relays_set.add(relay.node_id)
 
     def add_node(self, node, phase, region, search_region, node_type):
         node_id = f"{node.node_id}_{phase}"
@@ -297,6 +299,7 @@ class RTPGGraph:
         그래프를 초기 상태로 리셋합니다.
         """
         self.G = nx.Graph()
+        self.ground_relays_set = set()
 
     def relay_edge_counts(self):
         """
@@ -574,3 +577,7 @@ class RTPGGraph:
 
     def get_copy(self):
         return deepcopy(self)
+
+    def _invalidate_views(self):
+        self._views.clear()
+        self._view_epoch += 1

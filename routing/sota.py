@@ -30,7 +30,7 @@ def sat_to_sat_forwarding(cur, hor, ver, packet):
             q_self_v = cur.isl_up_buffer.size
         best_direction = vertical
     elif r_v_hop == 0:
-        if r_v_hop < 0:
+        if r_h_hop < 0:
             horizontal = 2
             q_self_h = cur.isl_left_buffer.size
         else:

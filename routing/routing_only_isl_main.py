@@ -2,6 +2,7 @@
 from operator import truediv
 from warnings import catch_warnings
 
+import networkx as nx
 import numpy as np
 from numpy.linalg import norm
 from numpy.f2py.rules import generationtime
@@ -31,7 +32,7 @@ def get_congestion_region(lat, lon):
             return area["city"]
     return "Others"
 
-def update_rtpg(rtpg, satellites, mapper):
+def update_rtpg(rtpg, satellites, ground_relays, mapper):
     sat_region_indices = mapper.batch_map(satellites)
 
     # 위성 등록
@@ -40,33 +41,61 @@ def update_rtpg(rtpg, satellites, mapper):
         rtpg.add_satellite(sat, region)
         sat.region = region
 
+    # Ground Relay 등록
+    for gr in ground_relays:
+        gr.connected_sats = []
+        rtpg.add_relay(gr, (gr.region_asc, gr.region_desc), (gr.search_regions_asc, gr.search_regions_desc))
+
     rtpg.connect_isl_links()
     rtpg.connect_ground_links()
 
     return rtpg
 
-def get_route(rtpg, user, ground_relays, n=1):
-    rtpg.add_user(user, (user.region_asc, user.region_desc), (user.search_regions_asc, user.search_regions_desc),
-                  user.is_in_city)
 
-    # User만을 위한 연결만 수행
+def get_route(rtpg, user, ground_relays, n=1):
+    # 1) 사용자 노드 추가 & 사용자-인접 링크 연결 (그래프 변형은 '사용자 추가/연결'에만 국한)
+    rtpg.add_user(
+        user,
+        (user.region_asc, user.region_desc),
+        (user.search_regions_asc, user.search_regions_desc),
+        user.is_in_city
+    )
     rtpg.connect_user_links(user)
 
-    # 최단 경로 찾기
     routes = []
+
+    # 목적지 외 모든 ground relay를 숨기기 위한 집합 (인자로부터 구성: 캐싱/전역세트 불필요)
+    ground_set = {gr.node_id for gr in ground_relays.values()}
+
+    # 2) n회 라우팅
     for _ in range(n):
         dst_id = random.choice(list(ground_relays.keys()))
         user.destination = dst_id
-        dst = ground_relays[dst_id]
+        dst_node = ground_relays[dst_id].node_id
 
-        rtpg.add_relay(dst, (dst.region_asc, dst.region_desc), (dst.search_regions_asc, dst.search_regions_desc))
-        rtpg.connect_node_links(dst)
+        # (중요) 목적지 외 ground relay는 숨기고, 위성/사용자/목적지는 보이게 하는 뷰
+        Gv = nx.subgraph_view(
+            rtpg.G,
+            filter_node=lambda node, dst=dst_node, grs=ground_set: (node == dst) or (node not in grs),
+            filter_edge=lambda u, v, dst=dst_node, grs=ground_set:
+                ((u == dst) or (u not in grs)) and ((v == dst) or (v not in grs))
+        )
 
-        route = rtpg.dijkstra_shortest_path(source_id=user.node_id, target_id=ground_relays[user.destination].node_id)
+        # 3) 다익스트라 (뷰 위에서 실행)
+        try:
+            weight_key = getattr(rtpg, "edge_weight_key", "weight")
+            dist, path = nx.single_source_dijkstra(Gv, user.node_id, dst_node, weight=weight_key)
+            # 필요 시 rtpg.dijkstra_shortest_path가 반환하던 포맷에 맞게 래핑하세요.
+            # 예: route = {"distance": dist, "path": path}
+            route = path
+        except nx.NetworkXNoPath:
+            route = None
+
         routes.append(route)
-        rtpg.G.remove_node(dst_id)
 
-    rtpg.G.remove_node(user.node_id)
+    # 4) 사용자 노드 제거 (원래 GSL 코드와 동일하게 정리)
+    if user.node_id in rtpg.G:
+        rtpg.G.remove_node(user.node_id)
 
     return routes
 
@@ -147,7 +176,8 @@ def transfer(sequences, next_hops, src_coords, disconnected=None):
 
 if __name__ == '__main__':
     header = [
-        "Time (ms)", "User ID", "Destination Relay ID", "Path Length", "result", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay",
+        "Time (ms)", "User ID", "Destination Relay ID", "Path Length", "Detour counts", "result", "Queuing delays",
+        "Queuing Delay", "Propagation Delay", "Transmission Delay",
         "Status", "Drop Location", "Drop Latitude", "Drop Longitude"
     ]
     filepath = "../results"
@@ -191,7 +221,7 @@ if __name__ == '__main__':
             user = prepare_node_routing_metadata(user, mapper, 550)
 
         """초기 RTPG 생성"""
-        rtpg = update_rtpg(RTPGGraph(N=N, M=M, F=F), satellites.values(), mapper)
+        rtpg = update_rtpg(RTPGGraph(N=N, M=M, F=F), satellites.values(), ground_relays.values(), mapper)
         rtpg.integrity_check()
 
         """ =============================
@@ -210,7 +240,7 @@ if __name__ == '__main__':
                 rtpg.reset_graph()
                 for s in satellites.values():
                     s.update_lat_lon_for_RTPG()
-                rtpg = update_rtpg(rtpg, satellites.values(), mapper)
+                rtpg = update_rtpg(rtpg, satellites.values(), ground_relays.values(), mapper)
 
             """ 패킷 생성
             1. 해당 타임 슬롯에 대해서 패킷을 생성할 사용자를 선택
@@ -223,7 +253,7 @@ if __name__ == '__main__':
                 paths = get_route(rtpg, user, ground_relays, n = num_of_generated_packets)
                 for path in paths:
                     new_packet = Packet(t)
-                    new_packet.set_path_info(path[0])
+                    new_packet.set_path_info(path)
                     user.receive_packet(new_packet)
 
             """
@@ -337,6 +367,8 @@ if __name__ == '__main__':
             for s in satellites.values():
                 while s.storage:
                     packet = s.storage.popleft()
+                    if len(packet.result) > 60:
+                        packet.show_detailed()
                     if packet.ttl >= 0:
                         packet.ttl -= 1
                     else:
@@ -444,7 +476,8 @@ if __name__ == '__main__':
                 ended += len(results)
                 while results:
                     packet = results.pop(0)
-                    common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), len(packet.detour_at)]
+                    common_data = [packet.start_at, packet.source, packet.destination, len(packet.result),
+                                   len(packet.detour_at)]
                     if packet.success:
                         drop_data = [packet.result, packet.queuing_delays,
                                      sum(packet.queuing_delays), packet.propagation_delays,
@@ -468,7 +501,8 @@ if __name__ == '__main__':
         ended += len(results)
         while results:
             packet = results.pop(0)
-            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), len(packet.detour_at)]
+            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result),
+                           len(packet.detour_at)]
             if packet.success:
                 drop_data = [packet.result, packet.queuing_delays,
                              sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay,
