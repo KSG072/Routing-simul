@@ -62,6 +62,7 @@ class Packet:
         self.ended_lon = None
         self.inconsistency = False
         self.ttl = TTL
+        self.detour_at = deque()
 
         self.remaining_v_hops = None # curr == key_node & was_on_ground일 때, storage 들어갈 때 바뀜
         self.remaining_h_hops = None # curr == key_node & was_on_ground일 때, storage 들어갈 때 바뀜
@@ -155,6 +156,7 @@ class Packet:
         print(f"Key Nodes       : {list(self.key_nodes)}")
         print(f"Ground Nodes    : {list(self.ground_nodes)}")
         print(f"Result Path     : {self.result}")
+        print(f"Detour points   : {list(self.detour_at)}")
         print(f"Queuing Delays  : {self.queuing_delays}")
         print(f"Dropped Lat/Lon : ({self.ended_lat}, {self.ended_lon})")
         print("=" * 40)

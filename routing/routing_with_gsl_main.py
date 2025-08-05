@@ -147,7 +147,7 @@ def transfer(sequences, next_hops, src_coords, disconnected=None):
 
 if __name__ == '__main__':
     header = [
-        "Time (ms)", "User ID", "Destination Relay ID", "Path Length", "result", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay",
+        "Time (ms)", "User ID", "Destination Relay ID", "Path Length", "Detour counts", "result", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay",
         "Status", "Drop Location", "Drop Latitude", "Drop Longitude"
     ]
     filepath = "../results"
@@ -347,16 +347,18 @@ if __name__ == '__main__':
 
                     if packet.curr == packet.key_node:
                         key_node = packet.next_key_node_id()
-                        if (not packet.was_on_ground) or packet.curr == key_node: # 위성으로부터 받은 패킷이거나, 지상에서 올라오자마자 내려가야하는 경우
-                            if packet.curr == key_node:
+                        if (not packet.was_on_ground) or (packet.was_on_ground and packet.curr == key_node): # 위성으로부터 받은 패킷이거나, 지상에서 올라오자마자 내려가야하는 경우
+                            if packet.was_on_ground:
+                                packet.was_on_ground = False
                                 packet.next_key_node_id()
-                            family = (satellites[node_id] for node_id in
-                                      ground_relays[packet.ground_node].connected_sats)
+                            family = (satellites[node_id] for node_id in ground_relays[packet.ground_node].connected_sats)
                             need_detour, packet, direction = sat_to_ground_forwarding(s, packet, family)
                             if need_detour:
+                                packet.detour_at.append((packet.curr, direction))
                                 packet.key_nodes.appendleft(packet.key_node)
                                 packet.set_key_node(direction)  # 새로운 keynode 설정
                                 calculate_hop_distance(packet, satellites)
+                                # packet.show_detailed()
                             else:
                                 s.enqueue_packet(direction, packet)
                                 continue  # 지상 큐에 삽입 후 다음 패킷 처리
@@ -443,7 +445,7 @@ if __name__ == '__main__':
                 ended += len(results)
                 while results:
                     packet = results.pop(0)
-                    common_data = [packet.start_at, packet.source, packet.destination, len(packet.result)]
+                    common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), len(packet.detour_at)]
                     if packet.success:
                         drop_data = [packet.result , packet.queuing_delays,
                                      sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay,
@@ -465,7 +467,7 @@ if __name__ == '__main__':
         ended += len(results)
         while results:
             packet = results.pop(0)
-            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result)]
+            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), len(packet.detour_at)]
             if packet.success:
                 drop_data = [packet.result, packet.queuing_delays,
                              sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay,

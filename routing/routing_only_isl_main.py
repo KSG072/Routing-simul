@@ -1,5 +1,5 @@
 #python 3.11.13
-
+from operator import truediv
 from warnings import catch_warnings
 
 import numpy as np
@@ -341,39 +341,31 @@ if __name__ == '__main__':
                         packet.ttl -= 1
                     else:
                         failed.append(packet)
+                        continue
+
                     if packet.curr == packet.key_node:
-                        packet.next_key_node_id()
-                        if packet.was_on_ground:  # 지상으로부터 받은 패킷 -> 키노드, 잔여 홉거리 설정
-                            calculate_hop_distance(packet, satellites)
-                            packet.was_on_ground = False
-                            if packet.curr == packet.key_node:
+                        key_node = packet.next_key_node_id()
+                        if (not packet.was_on_ground) or (
+                                packet.was_on_ground and packet.curr == key_node):  # 위성으로부터 받은 패킷이거나, 지상에서 올라오자마자 내려가야하는 경우
+                            if packet.was_on_ground:
+                                packet.was_on_ground = False
                                 packet.next_key_node_id()
-                                family = (satellites[node_id] for node_id in
-                                          ground_relays[packet.ground_node].connected_sats)
-                                need_detour, packet, direction = sat_to_ground_forwarding(s, packet, family)
-                                if need_detour:
-                                    packet.key_nodes.appendleft(packet.key_node)  # 다시 잠시 넣어둡니다.,...
-                                    packet.set_key_node(direction)  # 새로운 keynode 설정
-                                    calculate_hop_distance(packet, satellites)
-                                else:
-                                    s.enqueue_packet(direction, packet)
-                                    continue  # 지상 큐에 삽입 후 다음 패킷 처리
-                        else:  # 지상으로 가야할 패킷
-                            """우회가 필요할 경우 재설정된 keynode을 따라 홉 수 재설정 함수 내에서 packet 수정 거치고 나옴"""
-                            try:
-                                family = (satellites[node_id] for node_id in
-                                          ground_relays[packet.ground_node].connected_sats)
-                            except KeyError:
-                                packet.show_detailed()
-                                exit()
+                            family = (satellites[node_id] for node_id in
+                                      ground_relays[packet.ground_node].connected_sats)
                             need_detour, packet, direction = sat_to_ground_forwarding(s, packet, family)
                             if need_detour:
-                                packet.key_nodes.appendleft(packet.key_node)  # 다시 잠시 넣어둡니다.,...
+                                packet.detour_at.append((packet.curr, direction))
+                                packet.key_nodes.appendleft(packet.key_node)
                                 packet.set_key_node(direction)  # 새로운 keynode 설정
                                 calculate_hop_distance(packet, satellites)
+                                # packet.show_detailed()
                             else:
                                 s.enqueue_packet(direction, packet)
                                 continue  # 지상 큐에 삽입 후 다음 패킷 처리
+                        else:  # 지상으로부터 받은 패킷이고, 다른 위성으로 가야하는 경우
+                            calculate_hop_distance(packet, satellites)
+                            packet.was_on_ground = False
+
                     # 단순 위성 포워딩 (잔여 홉 있음)
                     horizontal = satellites[s.isl_left if packet.remaining_h_hops < 0 else s.isl_right]
                     vertical = satellites[s.isl_down if packet.remaining_v_hops < 0 else s.isl_up]
@@ -394,9 +386,10 @@ if __name__ == '__main__':
                             packet.ttl -= 1
                         else:
                             failed.append(packet)
+                            continue
                         packet.was_on_ground = True
                         packet.next_ground_node_id()
-                        family = (satellites[node_id] for node_id in ground_relays[packet.ground_node].connected_sats)
+                        family = (satellites[node_id] for node_id in ground_relays[packet.curr].connected_sats)
                         """지상-위성 라우팅 알고리즘 적용 부분"""
                         packet, direction = ground_to_sat_forwarding(g, packet, family)
                         g.enqueue_packet(direction, packet)
@@ -451,38 +444,40 @@ if __name__ == '__main__':
                 ended += len(results)
                 while results:
                     packet = results.pop(0)
-                    common_data = [packet.start_at, packet.source, packet.destination, len(packet.result)]
+                    common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), len(packet.detour_at)]
                     if packet.success:
-                        drop_data = [packet.result , packet.queuing_delays,
-                                     sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay,
-                                     packet.state,
+                        drop_data = [packet.result, packet.queuing_delays,
+                                     sum(packet.queuing_delays), packet.propagation_delays,
+                                     packet.transmission_delay,
+                                     'success',
                                      None, None, None]
                     else:
-                        drop_data = [packet.result , packet.queuing_delays,
-                            sum(packet.queuing_delays[:-1]), packet.propagation_delays,
-                            packet.state,
-                            f"at {packet.result[-1]}",
-                            packet.ended_lat, packet.ended_lon
-                        ]
+                        drop_data = [packet.result, packet.queuing_delays,
+                                     sum(packet.queuing_delays[:-1]), packet.propagation_delays,
+                                     packet.transmission_delay,
+                                     'inconsistency' if packet.inconsistency else 'drop',
+                                     f"at {packet.result[-1]}",
+                                     packet.ended_lat, packet.ended_lon
+                                     ]
                     row = common_data + drop_data
                     rows.append(row)
                 csv_write(rows, filepath, filename)
             # generation rate에 대한 for문 종료
-        #나머지 데이터 입력
+        # 나머지 데이터 입력
         rows = []
         ended += len(results)
         while results:
             packet = results.pop(0)
-            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result)]
+            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), len(packet.detour_at)]
             if packet.success:
                 drop_data = [packet.result, packet.queuing_delays,
                              sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay,
-                             packet.state,
+                             'success',
                              None, None, None]
             else:
                 drop_data = [packet.result, packet.queuing_delays,
-                             sum(packet.queuing_delays[:-1]), packet.propagation_delays,
-                             packet.state,
+                             sum(packet.queuing_delays[:-1]), packet.propagation_delays, packet.transmission_delay,
+                             'inconsistency' if packet.inconsistency else 'drop',
                              f"at {packet.result[-1]}",
                              packet.ended_lat, packet.ended_lon
                              ]
@@ -490,7 +485,7 @@ if __name__ == '__main__':
             rows.append(row)
         csv_write(rows, filepath, filename)
         print("\n--- Simulation Summary ---")
-        print(f"Generated: {steps*N_k*genertation_rate}")
+        print(f"Generated: {steps * N_k * genertation_rate}")
         print(f"Ended:     {ended}")
         print(f"Succeeded: {succeeded}")
         print(f"Failed:    {fail_cnt}")
