@@ -3,7 +3,8 @@
 /results/analyze_diff/
 /results/even traffic/
 /results/uneven traffic/
-/parameters/traffic
-/utils/node counts/
-/utils/relay counts/
-/utils/traffic counts/
+/parameters/traffic/*
+!/parameters/traffic/traffic_histogram.py
+/utils/node counts/*
+/utils/relay counts/*
+/utils/traffic counts/*
