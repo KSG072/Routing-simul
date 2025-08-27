@@ -1,3 +1,9 @@
-/fig/
 /results/*.csv
-/results/legacy
+/results/legacy/
+/results/analyze_diff/
+/results/even traffic/
+/results/uneven traffic/
+/parameters/traffic
+/utils/node counts/
+/utils/relay counts/
+/utils/traffic counts/

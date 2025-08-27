@@ -1,8 +1,14 @@
 from direct.gui.DirectGui import *
 from direct.gui.OnscreenText import OnscreenText
 from direct.showbase.DirectObject import DirectObject
-from panda3d.core import TextNode, VBase4, Point3, Camera, LineSegs
 from direct.task import Task
+from collections import defaultdict
+from panda3d.core import (
+TextNode, VBase4, Point3, Camera, LineSegs, NodePath, Geom, GeomNode, GeomTriangles, GeomVertexData, GeomVertexFormat, GeomVertexWriter,
+    BillboardEffect, LineSegs, VBase4
+)
+import math
+
 
 import matplotlib.pyplot as plt
 
@@ -10,15 +16,74 @@ import sys
 import numpy as np
 import math
 
+def _make_ngon_node(n: int, radius: float=0.22, angle_offset: float=0.0) -> NodePath:
+    """XZ 평면에 정N각형을 채워진 팬으로 생성 (카메라 빌보드용 2D 마커)"""
+    vformat = GeomVertexFormat.getV3()
+    vdata = GeomVertexData(f"ngon{n}", vformat, Geom.UHStatic)
+    vw = GeomVertexWriter(vdata, "vertex")
+
+    # 중심점
+    vw.addData3(0.0, 0.0, 0.0)
+    # 외곽점
+    for i in range(n):
+        a = angle_offset + 2.0*math.pi*i/n
+        x = radius * math.cos(a)
+        z = radius * math.sin(a)
+        vw.addData3(x, 0.0, z)
+
+    tris = GeomTriangles(Geom.UHStatic)
+    for i in range(1, n):
+        tris.addVertices(0, i, i+1)
+    tris.addVertices(0, n, 1)  # 마지막 면
+
+    geom = Geom(vdata); geom.addPrimitive(tris)
+    node = GeomNode(f"ngon{n}"); node.addGeom(geom)
+    return NodePath(node)
+
+def _make_star_node(points: int=5, R: float=0.24, r: float=0.10, angle_offset: float=0.0) -> NodePath:
+    """별(2*points 꼭짓점) 채워진 팬"""
+    vformat = GeomVertexFormat.getV3()
+    vdata = GeomVertexData(f"star{points}", vformat, Geom.UHStatic)
+    vw = GeomVertexWriter(vdata, "vertex")
+
+    vw.addData3(0.0, 0.0, 0.0)
+    total = points * 2
+    for i in range(total):
+        a = angle_offset + math.pi * i / points
+        rad = R if (i % 2 == 0) else r
+        x = rad * math.cos(a)
+        z = rad * math.sin(a)
+        vw.addData3(x, 0.0, z)
+
+    tris = GeomTriangles(Geom.UHStatic)
+    for i in range(1, total):
+        tris.addVertices(0, i, i+1)
+    tris.addVertices(0, total, 1)
+
+    geom = Geom(vdata); geom.addPrimitive(tris)
+    node = GeomNode(f"star{points}"); node.addGeom(geom)
+    return NodePath(node)
+
+def _make_marker(shape: str) -> NodePath:
+    shape = shape.lower()
+    if shape == "triangle":   return _make_ngon_node(3, radius=0.24, angle_offset=math.radians(90))
+    if shape == "square":     return _make_ngon_node(4, radius=0.22, angle_offset=math.radians(45))
+    if shape == "diamond":    return _make_ngon_node(4, radius=0.22, angle_offset=0.0)
+    if shape == "pentagon":   return _make_ngon_node(5, radius=0.23, angle_offset=math.radians(90))
+    if shape == "hexagon":    return _make_ngon_node(6, radius=0.22, angle_offset=math.radians(0))
+    if shape == "star":       return _make_star_node(points=5, R=0.24, r=0.10, angle_offset=math.radians(90))
+    # 기본은 원(정다각형 근사)
+    return _make_ngon_node(16, radius=0.22)
+
 
 class World(DirectObject):
     color_map = {
-        'red': (1, 0, 0, 1),
-        'green': (0, 1, 0, 1),
-        'blue': (0, 0, 1, 1),
-        'cyan': (0, 1, 1, 1),
-        'magenta': (1, 0, 1, 1),
-        'orange': (1.0, 0.65, 0.0, 1.0),
+        'asia': (1, 0, 0, 1),
+        'N.america': (0, 1, 0, 1),
+        'S.america': (0, 0, 1, 1),
+        'africa': (0, 1, 1, 1),
+        'europe': (1, 0, 1, 1),
+        'oceania': (1.0, 0.65, 0.0, 1.0),
     }
 
     def __init__(self, base, satellites, ground_relays, mapper, N, M, F, altitude_km, inclination_deg, earth_radius_km, T_s):
@@ -161,15 +226,41 @@ class World(DirectObject):
 
         self.ground_pivot = self.base.attachNewNode("ground_pivot")
 
-        for relay in self.ground_relays:
-            x, y, z = relay.get_cartesian_coords()
-            scale = self.earth_size_scale / relay.earth_radius
-            marker = self.master.loader.loadModel("../models/planet_sphere")
-            marker.setScale(0.2)
-            marker.setColor(World.color_map.get(relay.continent, (1, 1, 1, 1)))
-            marker.setPos(x * scale, y * scale, z * scale)
-            marker.reparentTo(self.ground_pivot)
-            relay.marker = marker
+        shape_cycle = ["triangle", "square", "diamond", "circle", "star"]
+
+        groups = defaultdict(list)
+        for r in self.ground_relays:
+            groups[r.continent].append(r)
+
+        for continent, relays in groups.items():
+            # 보기 좋게 안정적으로 정렬(원하면 다른 기준으로)
+            relays.sort(key=lambda r: getattr(r, "node_id", 0))
+
+            for i, relay in enumerate(relays):
+                x, y, z = relay.get_cartesian_coords()
+                scale = self.earth_size_scale / relay.earth_radius
+
+                # === 모양 만들기 (대륙 내에서 순환) ===
+                shape = shape_cycle[i % len(shape_cycle)]
+                marker = _make_marker(shape)
+
+                # === 색상은 대륙 고정 색 ===
+                rgba = World.color_map.get(relay.continent, (1, 1, 1, 1))
+                marker.setColor(*rgba)
+
+                # === 항상 카메라를 보도록 ===
+                marker.setEffect(BillboardEffect.makePointEye())
+                marker.setTwoSided(True)  # 뒤집혀도 보이게
+                marker.setLightOff(1)  # 라이팅 끔(필요 시)
+
+                # === 위치/스케일/부모 ===
+                marker.setPos(x * scale, y * scale, z * scale)
+                marker.reparentTo(self.ground_pivot)
+
+                # (선택) 외곽선 추가로 가독성 ↑
+                # _add_outline(marker, color=(0,0,0,1), radius=0.25)
+
+                relay.marker = marker
 
         self.earth = self.master.loader.loadModel("../models/planet_sphere")
         earth_tex = self.master.loader.loadTexture("../models/earth_1k_tex.jpg")

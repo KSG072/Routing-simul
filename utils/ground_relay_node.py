@@ -1,11 +1,11 @@
 # === ground_relay_node.py ===
 import numpy as np
 from random import sample
-from routing.buffer_queue import Buffer
+from routings.buffer_queue import Buffer
 from collections import deque
 
 class GroundRelayNode:
-    def __init__(self, node_id, latitude, longitude, continent, earth_radius_km=6371):
+    def __init__(self, node_id, latitude, longitude, continent, shape, earth_radius_km=6371):
         self.node_id = node_id
         self.latitude_deg = latitude
         self.longitude_deg = longitude
@@ -21,6 +21,7 @@ class GroundRelayNode:
         self.search_regions_desc = None
 
         self.marker = None
+        self.marker_shape = shape
 
         #routing
         self.receiving = []
@@ -79,8 +80,16 @@ class GroundRelayNode:
     def enqueue_packet(self, direction, packet):
         self.gsl_up_buffers[direction].enqueue(packet)
 
-    def storage_shuffle(self):
-        self.storage = deque(sample(self.storage, len(self.storage)))
+    def get_all_packets(self):
+        in_queue = []
+        for buffer_obj in self.gsl_up_buffers.values():
+            in_queue += list(buffer_obj.buffer)
+
+        return {
+            "receiving": self.receiving,
+            "on storage": self.storage,
+            "in queue": in_queue
+        }
 
     def __repr__(self):
         return (f"GroundRelayNode(id={self.node_id}, lat={self.latitude_deg:.2f}, "

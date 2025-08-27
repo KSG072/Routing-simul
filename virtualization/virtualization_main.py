@@ -9,7 +9,7 @@ from direct.showbase.ShowBase import ShowBase
 
 from visualization import World
 from rtp_renderer import RTPRenderer
-from routing import run_routing_simulation, run_isl_only_routing, clear_routing_visual
+from virtualization.routing import run_routing_simulation, run_isl_only_routing, clear_routing_visual
 
 from utils.walker_constellation import WalkerConstellation
 from utils.rtpg_mapper import RTPGMapper
@@ -27,7 +27,7 @@ class EarthApp(ShowBase):
     def __init__(self):
         ShowBase.__init__(self)
 
-        relay_csv_path = '../parameters/Ground_Relay_Coordinates.csv'
+        relay_csv_path = 'parameters/Ground_Relay_Coordinates.csv'
         N, M, F = 72, 22, 39    # walker-delta
         altitude_km, inclination_deg = 550, 53  # walker-delta
 
@@ -87,11 +87,13 @@ class EarthApp(ShowBase):
 
         self.routing_mode = RoutingMode.OFF
 
-        self.taskMgr.add(self.update_rtp_task, "updateRTP")
+        # self.taskMgr.add(self.update_rtp_task, "updateRTP")
         self.accept("k", self.rtp_renderer.toggle_real_time_mode)
         self.accept("a", self.rtp_renderer.toggle_search_area)
         self.accept('s', self.rtp_renderer.toggle_single_relay_box)
         self.accept("r", self.on_r_key_pressed)
+        self.accept("c", self.rtp_renderer.check_r_degree)
+        self.accept("d", self.rtp_renderer.apply_drop_heatmap_blue_red)
 
     def on_r_key_pressed(self):
         self.world.is_paused = True

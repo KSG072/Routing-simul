@@ -44,7 +44,7 @@ def plot_arrival_rate_avg_over_start_at(
     filename_tpl="limited_Q_with_GSL_{rate}.csv",
     metric="e2e_delay",                        # "e2e_delay" | "drop_rate"
     bin_size=50,                               # start_at 구간 간격(ms)
-    start_range=(0, 600),                      # x축 범위(ms)
+    start_range=(0, 700),                      # x축 범위(ms)
     success_label="success",                   # 성공 Status 라벨
     percent=False,                             # drop_rate를 %로 표시할지
     figsize=(10, 6),
@@ -686,12 +686,14 @@ if __name__ == '__main__':
         "Low (max)", "Low (avg)", "Low (min)"
     ]
 
-    analyze_files_cdf(
-        base_name='limited_Q_with_GSL_',
-        indices=indices_cdf,
-        qos=None,  # 전체 QoS 합산
-        reserve_top=0.95  # legend 공간. 필요시 0.78~0.90 조정
-    )
+    # analyze_files_cdf(
+    #     base_name='limited_Q_with_GSL_',
+    #     indices=indices_cdf,
+    #     qos=None,  # 전체 QoS 합산
+    #     reserve_top=0.95  # legend 공간. 필요시 0.78~0.90 조정
+    # )
+
+    plot_arrival_rate_avg_over_start_at('.')
     # analyze_delay_components_bar(
     #     base_name='limited_Q_with_GSL_',
     #     indices=indices,

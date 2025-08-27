@@ -7,7 +7,7 @@ from numpy import pi
 from collections import deque
 from parameters.PARAMS import MIN_ELEVATION
 
-from routing.buffer_queue import Buffer
+from routings.buffer_queue import Buffer
 
 class Satellite:
     def __init__(self, node_id, orbit_idx, sat_idx_in_orbit, inclination_rad, earth_radius_km=6371, altitude_km=550, speed=30):
@@ -159,12 +159,26 @@ class Satellite:
 
     def drop_packet(self):
         dropped = []
-        dropped += self.isl_up_buffer.drop()
-        dropped += self.isl_down_buffer.drop()
-        dropped += self.isl_left_buffer.drop()
-        dropped += self.isl_right_buffer.drop()
-        for buffer in self.gsl_down_buffers.values():
+        dropped_up = self.isl_up_buffer.drop()
+        for p in dropped_up:
+            p.dropped_direction = self.isl_up
+
+        dropped_down = self.isl_down_buffer.drop()
+        for p in dropped_down:
+            p.dropped_direction = self.isl_down
+
+        dropped_left = self.isl_left_buffer.drop()
+        for p in dropped_left:
+            p.dropped_direction = self.isl_left
+
+        dropped_right = self.isl_right_buffer.drop()
+        for p in dropped_right:
+            p.dropped_direction = self.isl_right
+
+        for direction, buffer in self.gsl_down_buffers.items():
             dropped += buffer.drop()
+            for p in dropped:
+                p.dropped_direction = direction
         # if dropped:
         #     print(dropped)
         return dropped
@@ -190,6 +204,18 @@ class Satellite:
             self.isl_left_buffer.size / self.isl_left_buffer.capacity,
             self.isl_right_buffer.size / self.isl_right_buffer.capacity,
         ]
+
+    def get_all_packets(self):
+        in_queue = list(self.isl_up_buffer.buffer)+list(self.isl_down_buffer.buffer)+list(self.isl_left_buffer.buffer)+list(self.isl_right_buffer.buffer)
+        for buffer_obj in self.gsl_down_buffers.values():
+            in_queue += list(buffer_obj.buffer)
+
+        return {
+            "receiving": self.receiving,
+            "on storage": self.storage,
+            "in queue": in_queue
+        }
+
 
 
     def __repr__(self):

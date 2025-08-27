@@ -173,6 +173,53 @@ class RTPGGraph:
                                 relay.link_to_sat(sat_id)
                                 sat.link_to_ground(relay_id)
 
+    def connect_ground_links_for_only_isl(self):
+        """
+        GSL 링크 연결 (relay 기준, ASC/DESC 포함)
+        - search_region은 이미 P_min < P_max, R_min < R_max 로 정규화되어 있음
+        """
+        satellites = {
+            nid: data for nid, data in self.G.nodes(data=True)
+            if data["type"] == "satellite"
+        }
+
+        for relay_id, relay_data in self.G.nodes(data=True):
+            if relay_data["type"] != "relay":
+                continue
+
+            relay = relay_data["obj"]
+
+            for search_region in relay_data["search_region"]:
+                P_min, R_min ,P_max, R_max = search_region
+
+                for sat_id, sat_data in satellites.items():
+                    P_sat, R_sat = sat_data["position"]
+                    sat = sat_data["obj"]
+
+                    if P_min < P_max:
+                        if R_min < R_max:
+                            if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
+                                self.G.add_edge(relay_id, sat_id, type="gsl", weight=1000)
+                                relay.link_to_sat(sat_id)
+                                sat.link_to_ground(relay_id)
+                        else:
+                            if P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
+                                self.G.add_edge(relay_id, sat_id, type="gsl", weight=1000)
+                                relay.link_to_sat(sat_id)
+                                sat.link_to_ground(relay_id)
+                    else:
+                        if R_min < R_max:
+                            if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
+                                self.G.add_edge(relay_id, sat_id, type="gsl", weight=1000)
+                                relay.link_to_sat(sat_id)
+                                sat.link_to_ground(relay_id)
+                        else:
+                            if (P_min <= P_sat or P_sat <= P_max) and (
+                                    R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
+                                self.G.add_edge(relay_id, sat_id, type="gsl", weight=1000)
+                                relay.link_to_sat(sat_id)
+                                sat.link_to_ground(relay_id)
+
 
     def connect_user_links(self, user):
         """
@@ -279,7 +326,7 @@ class RTPGGraph:
                             sat.link_to_ground(relay.node_id)
 
 
-    def dijkstra_shortest_path(self, source_id, target_id):
+    def dijkstra_shortest_path(self, source_id, target_id, weight):
         """
         NetworkX 기반 Dijkstra shortest path wrapper
         모든 edge weight는 기본적으로 1로 간주
@@ -288,7 +335,7 @@ class RTPGGraph:
             raise ValueError(f"Source or target not found in graph: {source_id}, {target_id}")
 
         try:
-            path = nx.shortest_path(self.G, source=source_id, target=target_id)
+            path = nx.shortest_path(self.G, source=source_id, target=target_id, weight=weight)
             length = len(path) - 1
             return path, length
         except nx.NetworkXNoPath:

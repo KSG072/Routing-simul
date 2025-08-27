@@ -43,15 +43,8 @@ def hop_distance():
     plt.tight_layout()
     plt.show()
 
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import numpy as np
-from matplotlib.colors import ListedColormap
-from matplotlib.cm import ScalarMappable
 
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import numpy as np
 from matplotlib.colors import ListedColormap
 from matplotlib.cm import ScalarMappable
 
@@ -120,8 +113,202 @@ def load_heatmap(gen_rate, t, N, M, data):
     plt.show()
 
 
-# 테스트 실행 예시
+
+import re
+from typing import Dict, List
+import pandas as pd
+
+# ========= 사용자 설정 =========
+
+
+
+# ========= 유틸: node_id → 대륙 추정 =========
+def guess_continent(node_id: str) -> str:
+    """
+    node_id의 접두/키워드로 대륙 추정.
+    예) asia-1606, eu-12, na-3, south-america-7 ...
+    규칙에 안 맞으면 'unknown' 반환.
+    """
+    s = str(node_id).strip().lower()
+
+    patterns: Dict[str, List[str]] = {
+        "N.america": [
+            r"^na\b", r"^n\.?america", r"^north[_\- ]?america"
+        ],
+        "S.america": [
+            r"^sa\b", r"^s\.?america", r"^south[_\- ]?america"
+        ],
+        "europe": [
+            r"^eu\b", r"^europe"
+        ],
+        "asia": [
+            r"^as\b", r"^asia"
+        ],
+        "africa": [
+            r"^af\b", r"^africa"
+        ],
+        "oceania": [
+            r"^oc\b", r"^oceania", r"^australia", r"^au\b"
+        ],
+    }
+    for cont, pats in patterns.items():
+        for p in pats:
+            if re.search(p, s):
+                return cont
+    # 대시 이전 접두어가 대륙명인 경우도 커버(예: africa-123)
+    head = s.split("-")[0]
+    simple = {
+        "na": "N.america", "sa": "S.america", "eu": "europe",
+        "as": "asia", "af": "africa", "oc": "oceania",
+        "namerica": "N.america", "samerica": "S.america",
+        "europe": "europe", "asia": "asia", "africa": "africa", "oceania": "oceania",
+    }
+    return simple.get(head, "unknown")
+
+
+# ========= 데이터 로드 & 전처리 =========
+def load_counts(csv_path: str) -> pd.DataFrame:
+    df = pd.read_csv(csv_path, low_memory=False)
+    needed = {"node_id", "total_counts", "success_counts", "drop_counts"}
+    miss = needed - set(df.columns)
+    if miss:
+        raise ValueError(f"CSV에 필요한 컬럼이 없습니다: {sorted(miss)}")
+
+    # 수치형 변환
+    for c in ["total_counts", "success_counts", "drop_counts"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+
+    # 대륙라벨
+    df["continent"] = df["node_id"].map(guess_continent)
+
+    # unknown 제거(그래프 대상에서 제외)
+    before = len(df)
+    df = df[df["continent"] != "unknown"].copy()
+    removed = before - len(df)
+    if removed > 0:
+        print(f"[info] unknown 대륙으로 분류되어 제외된 노드: {removed}개")
+
+    # 순서 정렬
+    df["continent"] = pd.Categorical(df["continent"], categories=CONTINENTS_ORDER, ordered=True)
+    return df
+
+
+# ========= 그래프 #1: 대륙별 total_counts 박스플롯 =========
+def plot_box_total_by_continent(df: pd.DataFrame):
+    data = [df.loc[df["continent"] == cont, "total_counts"].to_numpy()
+            for cont in CONTINENTS_ORDER if cont in df["continent"].unique()]
+    labels = [cont for cont in CONTINENTS_ORDER if cont in df["continent"].unique()]
+    if not data:
+        print("[skip] 박스플롯: 표시할 대륙 데이터가 없습니다.")
+        return
+
+    plt.figure(figsize=(10, 6))
+    bp = plt.boxplot(data, labels=labels, showmeans=True)
+    plt.title("Distribution of total_counts by Continent")
+    plt.ylabel("total_counts")
+    plt.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+
+# ========= 그래프 #2: 대륙별 노드 막대(성공/드롭 스택 + 주석) =========
+def plot_per_continent_node_bars(df: pd.DataFrame):
+    """
+    2×3 서브플롯으로 각 대륙의 노드별 막대그래프:
+      - x: node_id (많으면 간격/표식 줄임)
+      - bar 높이: total_counts
+      - 내부 stacked: success(파랑) + drop(빨강) (+ other(회색) if any)
+      - 막대 상단: total_counts 수치
+      - 내부: success%, drop% 표시
+    """
+    continents = [c for c in CONTINENTS_ORDER if c in df["continent"].unique()]
+    if not continents:
+        print("[skip] 막대그래프: 표시할 대륙 데이터가 없습니다.")
+        return
+
+    n = len(continents)
+    nrows, ncols = 2, 3
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4.5*ncols, 3.8*nrows), sharey=False)
+    axes = axes.ravel()
+
+    for idx, cont in enumerate(continents):
+        ax = axes[idx]
+        sub = df[df["continent"] == cont].copy()
+        # 노드가 많으면 total_counts 내림차순으로 정렬
+        sub = sub.sort_values("total_counts", ascending=False).reset_index(drop=True)
+
+        x = np.arange(len(sub))
+        total = sub["total_counts"].to_numpy(dtype=float)
+        suc   = sub["success_counts"].to_numpy(dtype=float)
+        drp   = sub["drop_counts"].to_numpy(dtype=float)
+        other = np.clip(total - (suc + drp), a_min=0, a_max=None)
+
+        # 배경: total (연한 회색)
+        ax.bar(x, total, color="#dddddd", width=0.8, label="total")
+
+        # 내부 스택: success(파랑), drop(빨강), other(연한회색 더 진하게)
+        bottom = np.zeros_like(total)
+        ax.bar(x, suc,   bottom=bottom, color="tab:blue",  width=0.8, label="success")
+        bottom = bottom + suc
+        ax.bar(x, drp,   bottom=bottom, color="tab:red",   width=0.8, label="drop")
+        bottom = bottom + drp
+        if other.sum() > 0:
+            ax.bar(x, other, bottom=bottom, color="#aaaaaa", width=0.8, label="other")
+
+        # 막대 상단 total 값
+        ymax = max(total.max() * 1.12, 1.0)
+        for xi, t in zip(x, total):
+            ax.text(xi, t + ymax*0.01, f"{int(t)}", ha="center", va="bottom", fontsize=8, rotation=0)
+
+        # 내부 비율 텍스트(success, drop)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s_pct = np.where(total > 0, suc / total, 0.0)
+            d_pct = np.where(total > 0, drp / total, 0.0)
+
+        # 너무 낮은 막대 내부엔 텍스트 생략(겹침 방지)
+        height_thresh = ymax * 0.04
+
+        for xi, s, d, t, s_p, d_p in zip(x, suc, drp, total, s_pct, d_pct):
+            if s > height_thresh:
+                ax.text(xi, s/2, f"{int(round(s_p*100))}%", color="white",
+                        ha="center", va="center", fontsize=7)
+            if d > height_thresh:
+                ax.text(xi, s + d/2, f"{int(round(d_p*100))}%", color="white",
+                        ha="center", va="center", fontsize=7)
+
+        # 라벨/축 설정
+        ax.set_title(f"{cont} (N={len(sub)})", fontsize=11)
+        ax.set_ylim(0, ymax)
+        # node_id 레이블이 많으면 일부만 표시
+        labels = sub["node_id"].astype(str).tolist()
+        step = max(1, len(labels) // 30)
+        shown_labels = [lab if (i % step == 0) else "" for i, lab in enumerate(labels)]
+        ax.set_xticks(x)
+        ax.set_xticklabels(shown_labels, rotation=90, fontsize=7)
+        ax.set_ylabel("total_counts")
+        ax.grid(axis="y", alpha=0.3)
+
+        if idx == 0:
+            ax.legend(ncol=3, fontsize=8)
+
+    # 남는 축 비우기
+    for j in range(len(continents), len(axes)):
+        axes[j].set_visible(False)
+
+    fig.suptitle("Per-Continent Node Bars: total with success/drop split", y=0.98)
+    plt.tight_layout()
+    plt.show()
+
+
+# ========= 메인 =========
 if __name__ == "__main__":
-    N, M = 72, 22
-    data = np.random.rand(N, M, 4)
-    load_heatmap(N, M, data)
+    CSV_PATH = r"relay counts/0827_even/relay_counts_before_and_after_rate_320.csv"  # 네 파일 경로로 변경
+    CONTINENTS_ORDER = ["N.america", "S.america", "europe", "asia", "africa", "oceania"]
+    df = load_counts(CSV_PATH)
+    if df.empty:
+        print("[warn] 빈 데이터입니다. CSV 경로/포맷을 확인하세요.")
+    else:
+        # 1) 대륙별 total_counts 박스플롯 (1개)
+        plot_box_total_by_continent(df)
+        # 2) 대륙별 노드 막대 (2×3 서브플롯 합계 6개) -> 총 7개 그래프
+        plot_per_continent_node_bars(df)

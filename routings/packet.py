@@ -19,6 +19,9 @@ def extract_key_nodes(path):
             # 뒤쪽
             if i < n - 1 and isinstance(path[i + 1], int):
                 key_nodes.append(path[i + 1])
+
+    key_nodes.append(path[-1]) # 도착지가 위성
+
     return key_nodes
 
 
@@ -32,9 +35,10 @@ def extract_ground_nodes(path):
 
 class Packet:
     p_id = 0
-    def __init__(self, t):
+    def __init__(self, t, qos):
         self.idx = Packet.p_id
         Packet.p_id += 1
+        self.qos = qos
         self.curr_idx = 0
         self.source = None
         self.source_lat = None # 해야함
@@ -46,13 +50,19 @@ class Packet:
         self.key_node = None # storage -> buffer 처리, curr == key_node일 때 바뀜
         self.ground_nodes = None # storage -> buffer 처리, curr == ground_node일 때 바뀜
         self.ground_node = None # storage -> buffer 처리, curr == ground_node일 때 바뀜
-        self.was_on_ground = True # storage -> buffer 처리, curr == ground_node일 때 바뀜
+        self.was_on_ground = None # storage -> buffer 처리, curr == ground_node일 때 바뀜
 
         self.result = [] # storage 들어갈 때 바뀜
         self.queuing_delays = []
         self.propagation_delays = 0
         self.remaining_prop_delay = 0
         self.transmission_delay = 0
+        self.last_direction = None
+        self.cross_count = 0
+        self.expected_delay = None
+        self.expected_isl_delay = None
+        self.expected_isl_length = None
+
 
         self.start_at = t
         self.end_at = None # 드롭/도착 했을 때 바뀜
@@ -60,14 +70,14 @@ class Packet:
         self.dropped_node = None
         self.ended_lat = None
         self.ended_lon = None
+        self.dropped_direction = None
         self.inconsistency = False
         self.ttl = TTL
-        self.detour_at = deque()
+        self.detour_at = []
 
         self.remaining_v_hops = None # curr == key_node & was_on_ground일 때, storage 들어갈 때 바뀜
         self.remaining_h_hops = None # curr == key_node & was_on_ground일 때, storage 들어갈 때 바뀜
 
-        self.rtpg = None
 
     def end(self, t, state, end_node_id, lat, lon):
         self.end_at = t
@@ -80,6 +90,7 @@ class Packet:
     def set_path_info(self, path):
         self.source = path[0]
         self.curr = path[0]
+        self.was_on_ground = False if isinstance(self.source, int) else True
         self.destination = path[-1]
         self.path = path
         self.key_nodes = extract_key_nodes(self.path)
@@ -87,6 +98,7 @@ class Packet:
         self.ground_nodes = extract_ground_nodes(self.path)
         _ = self.next_ground_node_id()
         self.result.append(self.curr)
+
 
     def next_key_node_id(self):
         if self.key_nodes:
@@ -139,13 +151,13 @@ class Packet:
     def show_detailed(self):
         print("=" * 40)
         print(f"Packet ID       : {self.idx}")
+        print(f"QoS class       : {self.qos}")
         print(f"Start Time      : {self.start_at}")
         print(f"End Time        : {self.end_at}")
         print(f"Success         : {self.success}")
         print(f"Source          : {self.source}")
         print(f"Destination     : {self.destination}")
         print(f"Current Node    : {self.curr}")
-        print(f"Current Index   : {self.curr_idx}")
         print(f"Current Key Node: {self.key_node}")
         print(f"Current Ground  : {self.ground_node}")
         print(f"Was on Ground   : {self.was_on_ground}")

@@ -1,6 +1,6 @@
 import numpy as np
 from collections import deque
-from routing.buffer_queue import Buffer
+from routings.buffer_queue import Buffer
 
 class UserNode:
     def __init__(self, node_id, latitude, longitude, earth_radius_km=6371):

@@ -1,6 +1,6 @@
 import csv
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 from utils.ground_relay_node import GroundRelayNode
 
@@ -167,7 +167,8 @@ def load_ground_relays_from_csv(csv_path, idx):
             latitude = float(row['latitude'])
             longitude = float(row['longitude'])
             continent = row['continent']
-            relay = GroundRelayNode(f"{continent}-{node_id}", latitude, longitude, continent)
+            shape = row['shape']
+            relay = GroundRelayNode(f"{continent}-{node_id}", latitude, longitude, continent, shape)
             relays[relay.node_id] = relay
 
             node_id += 1
@@ -210,3 +211,32 @@ def prepare_node_routing_metadata(node, mapper, altitude_km):
     node.search_regions_desc = norm_desc_r[0]
 
     return node
+
+def load_event_schedule(csv_path: str) -> Dict[int, List[Tuple[int, int, int]]]:
+    """
+    이벤트 CSV 전체를 메모리로 로드하여 time -> [(src, dst, count), ...] 딕셔너리로 반환.
+    같은 (time, src, dst)가 여러 줄이면 count 합산.
+    time은 float/int가 섞여 있어도 int(float(..))로 정규화.
+    src == dst 는 무시.
+    """
+    from collections import defaultdict
+    agg = defaultdict(lambda: defaultdict(int))  # time -> {(src,dst): count}
+
+    with open(csv_path, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        required = {"time", "src_id", "dst_id", "generated_pkt_num"}
+        if not required.issubset(reader.fieldnames or []):
+            raise ValueError(f"이벤트 CSV 헤더가 잘못되었습니다. 필요한 컬럼: {required}")
+
+        for row in reader:
+            t = int(float(row["time"]))
+            s = int(row["src_id"])
+            d = int(row["dst_id"])
+            if s == d:
+                continue
+            c = int(row["generated_pkt_num"])
+            agg[t][(s, d)] += c
+
+    # dict[int, list[(src,dst,count)]]
+    schedule = {t: [(s, d, c) for (s, d), c in pairs.items()] for t, pairs in agg.items()}
+    return schedule

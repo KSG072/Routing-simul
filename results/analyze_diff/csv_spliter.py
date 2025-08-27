@@ -21,10 +21,8 @@ def split_csv_by_rows(file_path, chunk_size):
 # 사용 예시
 if __name__ == '__main__':
     target = [
-        160
+        280
     ]
     for index in target:
-        # filename = f"seogwon_results_only_ISL_{index}.csv"
-        # split_csv_by_rows(filename, chunk_size=500000)
-        filename = f"limited_Q_with_GSL_{index}_rest.csv"
-        split_csv_by_rows(filename, chunk_size=500000)
+        filename = f"comparison_results_with_jump_{index}.csv"
+        split_csv_by_rows(filename, chunk_size=1000000)
