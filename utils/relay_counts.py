@@ -328,6 +328,7 @@ if __name__ == "__main__":
     # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
     BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results"
     rates = (40, 80, 120, 160, 200, 240, 280, 320, 360)
+    # rates = [360]
     FILES: List[str] = [fr"{BASE}\limited_Q_with_GSL_{rate}.csv" for rate in rates]
     # 모드 선택:
     # run(FILES, out_base="relay_counts", split_by_rate=False, counting_mode="whole_route")  # 기존 방식
@@ -335,5 +336,5 @@ if __name__ == "__main__":
     # 새로운 방식 (next-hop 기준 drop 판단)
     mode = "before_and_after"
     # run(FILES, out_base=f"relay counts/0827_uneven/relay_counts_{mode}", split_by_rate=True, counting_mode=mode)
-    run(FILES, out_base=f"relay counts/0827_even/relay_counts_{mode}", split_by_rate=True, counting_mode=mode)
+    run(FILES, out_base=f"relay counts/relay_counts_{mode}", split_by_rate=True, counting_mode=mode)
     pass

@@ -46,6 +46,7 @@ class Packet:
         self.curr = None # storage 들어갈 때 바뀜
         self.destination = None
         self.path = None
+        self.initial_length = None
         self.key_nodes = None # storage -> buffer 처리, curr == key_node일 때 바뀜
         self.key_node = None # storage -> buffer 처리, curr == key_node일 때 바뀜
         self.ground_nodes = None # storage -> buffer 처리, curr == ground_node일 때 바뀜

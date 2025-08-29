@@ -64,10 +64,10 @@ ALPHA_BARS           = 0.85   # 3D 막대 투명도
 VIEW_ELEV            = 22     # 3D 뷰 elevation
 VIEW_AZIM            = -60    # 3D 뷰 azimuth (시계방향으로 돌리고 싶으면 감소 방향으로 조정)
 # ==== [글로벌 저장 옵션] ====
-SAVE_DIR = Path(r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results")  # ← 원하는 폴더
+SAVE_DIR = Path(r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\legacy\new_uneven\anal")  # ← 원하는 폴더
 SAVE_FMT = "png"   # "png" / "pdf" 등
 SAVE_DPI = 200
-DEFAULT_SAVE_MODE = "show"   # "show" | "save" | "both"
+DEFAULT_SAVE_MODE = "save"   # "show" | "save" | "both"
 
 def _safe_filename(s: str) -> str:
     s = re.sub(r"[^\w\-=+.,() ]+", "_", s.strip())
@@ -1267,8 +1267,8 @@ if __name__ == "__main__":
     from glob import glob
 
     # 1) 직접 명시하는 방식 (권장: 확실함)
-    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results"
-    RATES = [1] # 필요한 생성률만
+    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\legacy\new_uneven"
+    RATES = [40, 80, 120, 160, 200, 240, 280, 320, 360] # 필요한 생성률만
     input_files = []
     for r in RATES:
         # 둘 다 GSL 결과(버퍼 제한/무제한)라면 이렇게 추가

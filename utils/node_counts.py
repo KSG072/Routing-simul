@@ -118,10 +118,11 @@ def run(csv_files: Iterable[str],
 if __name__ == "__main__":
     # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
     BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results"
+    # rates = [200]
     rates = (40, 80, 120, 160, 200, 240, 280, 320, 360)
     FILES: List[str] = [fr"{BASE}\limited_Q_with_GSL_{rate}.csv" for rate in rates]
 
     # run(FILES, out_base="node counts/node_counts", split_by_rate=False)
     # 또는 rate별 개별 파일
     # run(FILES, out_base="node counts/0827_uneven/node_counts", split_by_rate=True)
-    run(FILES, out_base="node counts/0827_even/node_counts", split_by_rate=True)
+    run(FILES, out_base="node counts/node_counts", split_by_rate=True)

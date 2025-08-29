@@ -302,7 +302,7 @@ def plot_per_continent_node_bars(df: pd.DataFrame):
 
 # ========= 메인 =========
 if __name__ == "__main__":
-    CSV_PATH = r"relay counts/0827_even/relay_counts_before_and_after_rate_320.csv"  # 네 파일 경로로 변경
+    CSV_PATH = r"relay counts/relay_counts_before_and_after_rate_320.csv"  # 네 파일 경로로 변경
     CONTINENTS_ORDER = ["N.america", "S.america", "europe", "asia", "africa", "oceania"]
     df = load_counts(CSV_PATH)
     if df.empty:

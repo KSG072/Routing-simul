@@ -77,9 +77,20 @@ def plot_arrival_rate_avg_over_start_at(
             print(f"[WARN] 파일 없음: {path}")
             continue
 
-        df = pd.read_csv(path, low_memory=False).rename(
-            columns={k: v for k, v in rename_map.items() if k in df.columns}
-        )
+            # 1) 먼저 읽고
+        df = pd.read_csv(path, low_memory=False)
+
+        # (선택) 헤더 공백/BOM 제거
+        df.columns = [c.strip().replace("\ufeff", "") for c in df.columns]
+
+        # 2) 그 다음, 존재하는 컬럼만 필터해서 rename
+        rename_map = {
+            "Time (ms)": "time_ms",
+            "e2e delay": "e2e_delay",
+            "Status": "Status",
+        }
+        rename_only_existing = {k: v for k, v in rename_map.items() if k in df.columns}
+        df = df.rename(columns=rename_only_existing)
 
         # 필수 컬럼 체크
         if "time_ms" not in df.columns:
@@ -111,7 +122,15 @@ def plot_arrival_rate_avg_over_start_at(
         df["tbin_center"] = df["tbin"] + bin_size / 2.0
 
         if metric == "e2e_delay":
-            grp = df.dropna(subset=["e2e_delay"]).groupby("tbin_center", as_index=False)["e2e_delay"].mean()
+            # ✅ success만 사용
+            if "Status" not in df.columns:
+                raise ValueError(f"{path.name} 에 'Status' 컬럼이 없습니다. (e2e_delay 계산은 success만 사용)")
+            status_clean = df["Status"].astype(str).str.strip().str.lower()
+            df_success = df[status_clean == str(success_label).lower()]  # default 'success'
+            grp = (df_success
+                   .dropna(subset=["e2e_delay"])
+                   .groupby("tbin_center", as_index=False)["e2e_delay"]
+                   .mean())
             if grp.empty:
                 continue
             ax.plot(grp["tbin_center"], grp["e2e_delay"], label=f"{rate}", linewidth=1.6)
@@ -158,30 +177,15 @@ def plot_arrival_rate_avg_over_start_at(
 
     return fig, ax
 
-def analyze_files_cdf(base_name, indices, directory='.', qos=None, reserve_top=0.86):
+def analyze_files_cdf(base_name, indices, directory='.', qos=None, reserve_top=0.86,
+                      target_range=(200, 600)):
     """
     각 파일(=Np 값) 별로 'success' 레코드만 모아서
       - Path Length (hops: Path Length - 1) CDF
       - End-to-End Delay(Queuing+Propagation+Transmission) CDF
     를 그립니다.
 
-    범례: Np 값 (예: "Np=10")
-    제목: 없음
-    Legend는 그래프 바깥 위쪽(예약 공간)에 배치하여 겹침 방지.
-
-    Parameters
-    ----------
-    base_name : str
-        파일 접두어 (예: 'seogwon_results_only_ISL_')
-    indices : iterable[int]
-        파일 인덱스들 (예: (10, 14, 18, ...))
-    directory : str
-        CSV 폴더 경로
-    qos : None | int | str
-        None이면 QoS 구분 없이 전체 success를 집계.
-        0/1/2 또는 'High'/'Middle'/'Low' (대소문자 무관)로 특정 QoS만 필터링.
-    reserve_top : float
-        0~1 사이. legend가 올라갈 위쪽 여백 비율. (값을 낮추면 여백 더 큼)
+    target_range: (lo, hi)로 해석하며 Time (ms) 가 lo 이상, hi 미만인 행만 포함.
     """
     # QoS 파라미터 정규화
     qos_code = None
@@ -199,14 +203,15 @@ def analyze_files_cdf(base_name, indices, directory='.', qos=None, reserve_top=0
             raise ValueError("qos must be int or str.")
 
     required = {'Path Length', 'Queuing Delay', 'Propagation Delay',
-                'Transmission Delay', 'Status'}
+                'Transmission Delay', 'Status', 'Time (ms)'}
     if qos_code is not None:
         required = required | {'QoS'}
 
-    # 수집 버킷: Np 라벨 -> np.array(values)
     path_by_idx = {}
     delay_by_idx = {}
-    labels = []  # 실제 곡선이 있는 Np만 범례에 사용
+    labels = []
+
+    lo, hi = target_range
 
     for idx in indices:
         filename = os.path.join(directory, f"{base_name}{idx}.csv")
@@ -215,26 +220,37 @@ def analyze_files_cdf(base_name, indices, directory='.', qos=None, reserve_top=0
             continue
 
         df = pd.read_csv(filename)
+        # 컬럼명 정리(BOM/공백 제거)
+        df.columns = [c.strip().replace("\ufeff","") for c in df.columns]
+
         if not required.issubset(df.columns):
             print(f"File {filename} is missing required columns {required - set(df.columns)}. Skipping.")
             continue
 
+        # Time(ms) 필터 (lo 이상, hi 미만)
+        df['Time (ms)'] = pd.to_numeric(df['Time (ms)'], errors='coerce')
+        df = df[(df['Time (ms)'] >= lo) & (df['Time (ms)'] < hi)]
+        if df.empty:
+            print(f"[{idx}] no rows in Time(ms) range {target_range}. Skipping.")
+            continue
+
         df_ok = df[df['Status'] == 'success']
-        if qos_code is not None:
+        if qos_code is not None and 'QoS' in df.columns:
             df_ok = df_ok[df_ok['QoS'] == qos_code]
 
         if df_ok.empty:
-            print(f"[{idx}] no success rows (qos={qos}). Skipping.")
+            print(f"[{idx}] no success rows in Time(ms) range {target_range} (qos={qos}). Skipping.")
             continue
 
-        # 값 준비
+        # 숫자 변환 (안전)
+        for col in ['Path Length', 'Queuing Delay', 'Propagation Delay', 'Transmission Delay']:
+            df_ok[col] = pd.to_numeric(df_ok[col], errors='coerce')
+
         path_vals = (df_ok['Path Length'] - 1).dropna().to_numpy()
-        delay_vals = (
-            df_ok['Queuing Delay'] + df_ok['Propagation Delay'] + df_ok['Transmission Delay']
-        ).dropna().to_numpy()
+        delay_vals = (df_ok['Queuing Delay'] + df_ok['Propagation Delay'] + df_ok['Transmission Delay']).dropna().to_numpy()
 
         if len(path_vals) == 0 and len(delay_vals) == 0:
-            print(f"[{idx}] no valid numeric rows. Skipping.")
+            print(f"[{idx}] no valid numeric rows after filtering. Skipping.")
             continue
 
         label = f"Np={idx}"
@@ -246,13 +262,12 @@ def analyze_files_cdf(base_name, indices, directory='.', qos=None, reserve_top=0
         print("No valid data to plot for CDF.")
         return
 
-    # ECDF 유틸
     def _ecdf(values: np.ndarray):
         v = np.sort(values)
         y = np.arange(1, len(v) + 1) / len(v)
         return v, y
 
-    # ---------- CDF Plot: Path Length ----------
+    # Path Length CDF
     if any(len(path_by_idx[l]) > 0 for l in labels):
         fig, ax = plt.subplots()
         for lab in labels:
@@ -264,22 +279,19 @@ def analyze_files_cdf(base_name, indices, directory='.', qos=None, reserve_top=0
 
         ax.set_xlabel("Path Length (hops)")
         ax.set_ylabel("CDF")
-        # ax.set_xlim(0, 30)
         ax.set_ylim(0, 1)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.1))
         _apply_tick_style(ax, x_minor_div=5, y_minor_div=0)
         ax.grid(True)
 
-
         ncol = min(6, max(1, len(labels)))
-        # 위쪽 legend 공간 예약
         fig.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
         fig.legend(loc='upper center', bbox_to_anchor=(0.5, 0.99), ncol=ncol, frameon=True)
         plt.show()
     else:
         print("No Path Length data for CDF.")
 
-    # ---------- CDF Plot: End-to-End Delay ----------
+    # Delay CDF
     if any(len(delay_by_idx[l]) > 0 for l in labels):
         fig, ax = plt.subplots()
         for lab in labels:
@@ -291,7 +303,6 @@ def analyze_files_cdf(base_name, indices, directory='.', qos=None, reserve_top=0
 
         ax.set_xlabel("End-to-End Delay")
         ax.set_ylabel("CDF")
-        # ax.set_xlim(0, 250)
         ax.set_ylim(0, 1)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(0.1))
         _apply_tick_style(ax, x_minor_div=5, y_minor_div=0)
@@ -501,7 +512,14 @@ def analyze_files_qos(base_name, indices, directory='.',
 
     _place_legend(ax, ncol=legend_ncol, legend_order=legend_order, reserve_top=reserve_top)
     plt.show()
-def analyze_files_overall(base_name, indices, directory='.'):
+def analyze_files_overall(base_name, indices, directory='.', target_range=(200, 600)):
+    """
+    각 파일별로 (Time(ms) in [lo, hi)) 범위의 레코드만 사용하여
+    - Path Length (success만)
+    - e2e delay (success만)
+    - Drop Probability (전체 대비 success 비율로 계산)
+    를 집계/시각화합니다.
+    """
     stats = {
         "index": [],
         "path_length_avg": [],
@@ -510,10 +528,11 @@ def analyze_files_overall(base_name, indices, directory='.'):
         "delay_avg": [],
         "delay_min": [],
         "delay_max": [],
-        # "delay_expected": [],
-        # "delay_expected_isl": [],
         "drop_prob": []
     }
+
+    required_columns = {'Path Length', 'e2e delay', 'Status', 'Time (ms)'}
+    lo, hi = target_range
 
     for idx in indices:
         filename = os.path.join(directory, f"{base_name}{idx}.csv")
@@ -522,32 +541,42 @@ def analyze_files_overall(base_name, indices, directory='.'):
             continue
 
         df = pd.read_csv(filename)
+        df.columns = [c.strip().replace("\ufeff","") for c in df.columns]
 
-        # required_columns = {'Path Length', 'e2e delay', 'Status', "delay_expected", "delay_expected_isl"}
-        required_columns = {'Path Length', 'e2e delay', 'Status'}
         if not required_columns.issubset(df.columns):
             print(f"File {filename} is missing required columns. Skipping.")
             continue
 
-        # Drop probability는 전체 기준, path/delay는 success만
+        # 시간 필터
+        df['Time (ms)'] = pd.to_numeric(df['Time (ms)'], errors='coerce')
+        df = df[(df['Time (ms)'] >= lo) & (df['Time (ms)'] < hi)]
+        if df.empty:
+            print(f"[{idx}] no rows in Time(ms) range {target_range}. Skipping.")
+            continue
+
+        # Drop prob 은 전체 분모에 '범위 내 전체 행' 사용
         success_df = df[df['Status'] == 'success']
-        success_ratio = len(success_df) / len(df) if len(df) > 0 else 0
+        total_len = len(df)
+        success_ratio = len(success_df) / total_len if total_len > 0 else 0
 
         stats["index"].append(idx)
-        if not success_df.empty:
-            path_length = success_df['Path Length'] - 1
-            total_delay = success_df['e2e delay']
 
-            stats["path_length_avg"].append(path_length.mean())
-            stats["path_length_min"].append(path_length.min())
-            stats["path_length_max"].append(path_length.max())
-            stats["delay_avg"].append(total_delay.mean())
-            stats["delay_min"].append(total_delay.min())
-            stats["delay_max"].append(total_delay.max())
-            # stats["delay_expected"].append(success_df['expected delay(result)'].mean())
-            # stats["delay_expected_isl"].append(success_df['expected delay(isl)'].mean())
+        if not success_df.empty:
+            # 숫자 변환
+            success_df['Path Length'] = pd.to_numeric(success_df['Path Length'], errors='coerce')
+            success_df['e2e delay']   = pd.to_numeric(success_df['e2e delay'],   errors='coerce')
+
+            path_length = (success_df['Path Length'] - 1).dropna()
+            total_delay = success_df['e2e delay'].dropna()
+
+            stats["path_length_avg"].append(path_length.mean() if not path_length.empty else np.nan)
+            stats["path_length_min"].append(path_length.min()  if not path_length.empty else np.nan)
+            stats["path_length_max"].append(path_length.max()  if not path_length.empty else np.nan)
+
+            stats["delay_avg"].append(total_delay.mean() if not total_delay.empty else np.nan)
+            stats["delay_min"].append(total_delay.min()  if not total_delay.empty else np.nan)
+            stats["delay_max"].append(total_delay.max()  if not total_delay.empty else np.nan)
         else:
-            # success가 하나도 없을 경우 NaN 처리
             stats["path_length_avg"].append(float('nan'))
             stats["path_length_min"].append(float('nan'))
             stats["path_length_max"].append(float('nan'))
@@ -557,10 +586,12 @@ def analyze_files_overall(base_name, indices, directory='.'):
 
         stats["drop_prob"].append(1 - success_ratio)
 
-    # X축 값 고정
     x_ticks = stats["index"]
+    if not x_ticks:
+        print("No valid files to plot.")
+        return
 
-    # Plot Path Length
+    # Path Length
     plt.figure()
     plt.plot(x_ticks, stats["path_length_avg"], marker='o', color='orange', label='Average')
     plt.plot(x_ticks, stats["path_length_min"], marker='^', linestyle='--', color='green', label='Min')
@@ -576,13 +607,11 @@ def analyze_files_overall(base_name, indices, directory='.'):
     plt.tight_layout()
     plt.show()
 
-    # Plot End-to-End Delay
+    # End-to-End Delay
     plt.figure()
     plt.plot(x_ticks, stats["delay_avg"], marker='o', color='orange', label='Average')
     plt.plot(x_ticks, stats["delay_min"], marker='^', linestyle='--', color='green', label='Min')
     plt.plot(x_ticks, stats["delay_max"], marker='v', linestyle='--', color='red', label='Max')
-    # plt.plot(x_ticks, stats["delay_expected"], marker='*', linestyle=':', color='grey', label='expected')
-    # plt.plot(x_ticks, stats["delay_expected_isl"], marker='*', linestyle=':', color='grey', label='expected_isl')
     plt.xlabel(r"Packet Arrival Rate (Mbps)")
     plt.ylabel("End-to-End Delay (ms)")
     plt.xticks(x_ticks)
@@ -592,14 +621,14 @@ def analyze_files_overall(base_name, indices, directory='.'):
     plt.tight_layout()
     plt.show()
 
-    # Plot Drop Probability
+    # Drop Probability
     plt.figure()
     plt.plot(x_ticks, stats["drop_prob"], marker='o', color='red')
     plt.xlabel(r"Packet Arrival Rate (Mbps)")
     plt.ylabel("Drop Probability")
     plt.xticks(x_ticks)
     plt.xlim(min(x_ticks), max(x_ticks))
-    plt.ylim(bottom=0)  # y축 0부터 시작
+    plt.ylim(bottom=0)
     plt.grid(True)
     plt.tight_layout()
     plt.show()
@@ -607,16 +636,21 @@ def analyze_files_overall(base_name, indices, directory='.'):
 def analyze_delay_components_bar(base_name, indices, directory='.',
                                  agg='mean',        # 'mean' 또는 'median'
                                  reserve_top=0.85,  # 범례를 위 바깥으로 빼기 위한 여백
-                                 bar_width=0.25):
+                                 bar_width=0.25,
+                                 target_range=(200, 600)):
     """
     각 Np(파일 인덱스)별로 success 행만 집계하여
     Queuing / Propagation / Transmission 지연의 집계값(평균/중앙값)을
     '3개 막대'로 묶은 그룹드 바 차트로 그립니다.
-    """
-    required = {'Queuing Delay', 'Propagation Delay', 'Transmission Delay', 'Status'}
 
-    x_labels = []      # 실제로 그려질 Np들
+    target_range: (lo, hi)로 해석하며 Time (ms) 가 lo 이상, hi 미만인 행만 포함.
+    """
+    required = {'Queuing Delay', 'Propagation Delay', 'Transmission Delay', 'Status', 'Time (ms)'}
+
+    x_labels = []
     q_vals, p_vals, t_vals = [], [], []
+
+    lo, hi = target_range
 
     for idx in indices:
         filename = os.path.join(directory, f"{base_name}{idx}.csv")
@@ -625,14 +659,27 @@ def analyze_delay_components_bar(base_name, indices, directory='.',
             continue
 
         df = pd.read_csv(filename)
+        df.columns = [c.strip().replace("\ufeff","") for c in df.columns]
+
         if not required.issubset(df.columns):
             print(f"File {filename} is missing required columns {required - set(df.columns)}. Skipping.")
             continue
 
+        # 시간 필터
+        df['Time (ms)'] = pd.to_numeric(df['Time (ms)'], errors='coerce')
+        df = df[(df['Time (ms)'] >= lo) & (df['Time (ms)'] < hi)]
+        if df.empty:
+            print(f"[{idx}] no rows in Time(ms) range {target_range}. Skipping.")
+            continue
+
         df_ok = df[df['Status'] == 'success']
         if df_ok.empty:
-            print(f"[{idx}] no success rows. Skipping.")
+            print(f"[{idx}] no success rows in Time(ms) range {target_range}. Skipping.")
             continue
+
+        # 숫자 변환
+        for c in ['Queuing Delay', 'Propagation Delay', 'Transmission Delay']:
+            df_ok[c] = pd.to_numeric(df_ok[c], errors='coerce')
 
         if agg == 'median':
             q = df_ok['Queuing Delay'].median()
@@ -652,7 +699,6 @@ def analyze_delay_components_bar(base_name, indices, directory='.',
         print("No valid data to plot.")
         return
 
-    # --- 그리기 ---
     x = np.arange(len(x_labels))
     fig, ax = plt.subplots()
 
@@ -664,46 +710,235 @@ def analyze_delay_components_bar(base_name, indices, directory='.',
     ax.set_ylabel("Time (ms)")
     ax.set_xticks(x)
     ax.set_xticklabels([str(v) for v in x_labels])
-    ax.set_ylim(bottom=0)   # y축 0부터 시작
-    ax.margins(y=0)         # 여백 제거해서 바닥에 딱 붙게
+    ax.set_ylim(bottom=0)
+    ax.margins(y=0)
     ax.grid(True, axis='y', linestyle='--', alpha=0.5)
 
-    # 범례를 그래프 바깥 위쪽으로(겹침 방지)
-    fig.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])  # 위쪽 공간 예약
+    fig.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
     fig.legend(loc='upper center', bbox_to_anchor=(0.5, 0.99),
                ncol=3, frameon=True)
     plt.show()
+
+def analyze_files_overall_boxplot(base_name, indices, directory='.',
+                                  target_range=(200, 600),
+                                  plot_path_length=True,
+                                  plot_e2e_delay=True,
+                                  whis=(5, 95),          # 상하위 백분위로 수염 길이 설정
+                                  notch=False,
+                                  showfliers=False,      # 아웃라이어 점 표시 여부
+                                  widths=0.6,
+                                  reserve_top=0.90,      # 위쪽 여백(범례 대신 여백만)
+                                  annotate_counts=True   # 각 상자 위에 표본 수 N 표시
+                                  ):
+    """
+    각 파일(=Np/arrival rate)에서 Time(ms) ∈ [lo, hi) & Status=='success' 인 행만 뽑아
+    - Path Length(= 'Path Length' - 1) 분포
+    - e2e delay(= 'e2e delay') 분포
+    를 rate 별 박스플롯으로 그립니다.
+
+    Parameters
+    ----------
+    base_name : str
+        파일 접두어 (예: 'limited_Q_with_GSL_')
+    indices : iterable[int]
+        파일 인덱스들 (예: (40, 80, 120, ...))
+    directory : str
+        CSV 폴더 경로
+    target_range : (lo, hi)
+        Time (ms) 가 lo 이상, hi 미만인 행만 포함
+    plot_path_length : bool
+        Path Length 박스플롯 표시 여부
+    plot_e2e_delay : bool
+        e2e delay 박스플롯 표시 여부
+    whis : tuple[int,int] | float | str
+        matplotlib boxplot의 whis 인자 (수염 범위)
+    showfliers : bool
+        아웃라이어 표시 여부
+    """
+
+    # 어떤 지표를 그릴지에 따라 필요한 컬럼 구성
+    base_required = {'Status', 'Time (ms)'}
+    pl_required   = {'Path Length'}
+    dly_required  = {'e2e delay'}
+
+    # rate별 데이터 컨테이너 (지표별로 독립적으로 모음: 비어있는 rate는 스킵)
+    pl_labels,  pl_data,  pl_counts  = [], [], []
+    dly_labels, dly_data, dly_counts = [], [], []
+
+    lo, hi = target_range
+
+    for idx in indices:
+        filename = os.path.join(directory, f"{base_name}{idx}.csv")
+        if not os.path.exists(filename):
+            print(f"[WARN] File {filename} not found. Skipping.")
+            continue
+
+        df = pd.read_csv(filename, low_memory=False)
+        # BOM/공백 제거
+        df.columns = [c.strip().replace("\ufeff", "") for c in df.columns]
+
+        # 공통/필요 컬럼 체크
+        needed = set(base_required)
+        if plot_path_length: needed |= pl_required
+        if plot_e2e_delay:   needed |= dly_required
+
+        if not needed.issubset(df.columns):
+            missing = needed - set(df.columns)
+            print(f"[WARN] File {filename} missing columns: {missing}. Skipping.")
+            continue
+
+        # Time 필터
+        df['Time (ms)'] = pd.to_numeric(df['Time (ms)'], errors='coerce')
+        df = df[(df['Time (ms)'] >= lo) & (df['Time (ms)'] < hi)]
+        if df.empty:
+            print(f"[INFO] [{idx}] no rows in Time(ms) range {target_range}. Skipping.")
+            continue
+
+        # success만
+        df_ok = df[df['Status'].astype(str).str.strip().str.lower() == 'success']
+        if df_ok.empty:
+            print(f"[INFO] [{idx}] no success rows in range {target_range}. Skipping.")
+            continue
+
+        # -------- Path Length 분포 --------
+        if plot_path_length:
+            s = pd.to_numeric(df_ok['Path Length'], errors='coerce') - 1
+            s = s.dropna()
+            if len(s) > 0:
+                pl_labels.append(idx)
+                pl_data.append(s.to_numpy())
+                pl_counts.append(len(s))
+
+        # -------- e2e delay 분포 --------
+        if plot_e2e_delay:
+            s = pd.to_numeric(df_ok['e2e delay'], errors='coerce').dropna()
+            if len(s) > 0:
+                dly_labels.append(idx)
+                dly_data.append(s.to_numpy())
+                dly_counts.append(len(s))
+
+    # -------- 그리기: Path Length --------
+    if plot_path_length and pl_labels:
+        x = np.arange(len(pl_labels))
+        fig, ax = plt.subplots()
+
+        bp = ax.boxplot(pl_data, positions=x, widths=widths, whis=whis,
+                        notch=notch, showfliers=showfliers, patch_artist=True)
+
+        # (선택) 채색/스타일 약간 가독성
+        for patch in bp['boxes']:
+            patch.set(facecolor='#dddddd', edgecolor='black', alpha=0.8)
+        for element in ['whiskers', 'caps', 'medians']:
+            for line in bp[element]:
+                line.set(color='black')
+
+        ax.set_xlabel(r"Packet Arrival Rate (Mbps)")
+        ax.set_ylabel("Path Length (hops)")
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(v) for v in pl_labels])
+        ax.margins(y=0)
+        ax.grid(True, axis='y', linestyle='--', alpha=0.5)
+        _apply_tick_style(ax, x_minor_div=0, y_minor_div=5)
+
+        # 표본 수 N 주석
+        if annotate_counts:
+            ymax = max([np.nanmax(v) if len(v) else np.nan for v in pl_data])
+            ytxt = ymax + (0.03 * (ymax if np.isfinite(ymax) else 1))
+            for xi, n in zip(x, pl_counts):
+                ax.text(xi, ytxt, f"N={n}", ha='center', va='bottom', fontsize=9)
+
+        fig.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
+        plt.show()
+    elif plot_path_length:
+        print("[INFO] No Path Length data for boxplot.")
+
+    # -------- 그리기: e2e delay --------
+    if plot_e2e_delay and dly_labels:
+        x = np.arange(len(dly_labels))
+        fig, ax = plt.subplots()
+
+        bp = ax.boxplot(dly_data, positions=x, widths=widths, whis=whis,
+                        notch=notch, showfliers=showfliers, patch_artist=True)
+
+        for patch in bp['boxes']:
+            patch.set(facecolor='#dddddd', edgecolor='black', alpha=0.8)
+        for element in ['whiskers', 'caps', 'medians']:
+            for line in bp[element]:
+                line.set(color='black')
+
+        ax.set_xlabel(r"Packet Arrival Rate (Mbps)")
+        ax.set_ylabel("End-to-End Delay (ms)")
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(v) for v in dly_labels])
+        ax.margins(y=0)
+        ax.grid(True, axis='y', linestyle='--', alpha=0.5)
+        _apply_tick_style(ax, x_minor_div=0, y_minor_div=5)
+
+        if annotate_counts:
+            ymax = max([np.nanmax(v) if len(v) else np.nan for v in dly_data])
+            ytxt = ymax + (0.03 * (ymax if np.isfinite(ymax) else 1))
+            for xi, n in zip(x, dly_counts):
+                ax.text(xi, ytxt, f"N={n}", ha='center', va='bottom', fontsize=9)
+
+        fig.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
+        plt.show()
+    elif plot_e2e_delay:
+        print("[INFO] No e2e delay data for boxplot.")
+
+
+
 # 사용 예시
 if __name__ == '__main__':
     indices = (40, 80, 120, 160, 200, 240, 280, 320, 360)
-    indices_cdf = (40, 120, 200, 280, 360)
-    # indices = (40,80,160,240,320)
-    # indices_cdf = (40, 160, 320)
+    # indices = (40, 80, 160, 200, 240, 280, 360)
+    # indices_cdf = (40, 120, 200, 280, 360)
     # legend 원하는 순서 예시: 평균 먼저, 그 다음 min/max
     legend_order = [
         "High (max)", "High (avg)", "High (min)",
         "Middle (max)", "Middle (avg)", "Middle (min)",
         "Low (max)", "Low (avg)", "Low (min)"
     ]
-
+    # CDF (200~600ms 범위만)
     analyze_files_cdf(
         base_name='limited_Q_with_GSL_',
-        indices=indices_cdf,
-        qos=None,  # 전체 QoS 합산
-        reserve_top=0.95  # legend 공간. 필요시 0.78~0.90 조정
+        indices=(40, 120, 200, 280, 360),
+        directory='.',
+        target_range=(200, 600)
     )
-    # analyze_delay_components_bar(
+
+    # Delay Components Bar (200~600ms 범위만)
+    analyze_delay_components_bar(
+        base_name='limited_Q_with_GSL_',
+        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+        directory='.',
+        agg='mean',
+        reserve_top=0.84,
+        target_range=(200, 600)
+    )
+
+    # Overall (200~600ms 범위만)
+    analyze_files_overall(
+        base_name='limited_Q_with_GSL_',
+        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+        directory='.',
+        target_range=(200, 600)
+    )
+
+    # analyze_files_overall_boxplot(
     #     base_name='limited_Q_with_GSL_',
-    #     indices=indices,
-    #     agg='mean',  # 'median' 으로 바꾸면 중앙값
-    #     reserve_top=0.84,
-    #     directory='.'
+    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     directory='.',
+    #     target_range=(200, 600),
+    #     plot_path_length=True,
+    #     plot_e2e_delay=True,
+    #     whis=(5, 95),  # 수염을 5~95 백분위로
+    #     showfliers=True,  # 아웃라이어 숨김
+    #     annotate_counts=True  # 각 박스 위에 표본 수 표시
     # )
-    # analyze_files_overall(
-    #     base_name='limited_Q_with_GSL_',
-    #     indices=indices,
-    #     directory='.'
-    # )
+
+    #
+    # plot_arrival_rate_avg_over_start_at('.', indices, start_range=(0, 1200), metric="drop_rate")
+    # plot_arrival_rate_avg_over_start_at('.', indices, start_range=(0, 1200), metric="e2e_delay")
 
 
     # 전체 QoS 합산

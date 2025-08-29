@@ -27,8 +27,8 @@ class GroundRelayNode:
         self.receiving = []
         self.storage = deque()
         self.connected_sats = []
-        self.disconnected = set()
         self.gsl_up_buffers = {}
+        self.disconnected = []
 
 
     def get_position(self):
@@ -45,8 +45,9 @@ class GroundRelayNode:
 
     def link_to_sat(self, sat_id):
         self.connected_sats.append(sat_id)
-        new_buffer = Buffer('up')
-        self.gsl_up_buffers[sat_id] = new_buffer
+        if sat_id not in self.gsl_up_buffers.keys():
+            new_buffer = Buffer('up')
+            self.gsl_up_buffers[sat_id] = new_buffer
 
     def receive_packet(self, packet):
         self.receiving.append(packet)
@@ -71,6 +72,18 @@ class GroundRelayNode:
 
         return [[], [], [], [], [], gsl_packets]
 
+    def trash_packets(self):
+        disconnected = [sat_id for sat_id in self.gsl_up_buffers.keys() if sat_id not in self.connected_sats]
+        if self.disconnected:
+            disconnected += self.disconnected
+        trash = []
+        for direction in disconnected:
+            disconnected_buffer = self.gsl_up_buffers.pop(direction)
+            trash += list(disconnected_buffer.buffer)
+        self.disconnected = []
+
+        return trash
+
     def has_packets(self):
         for buffer in self.gsl_up_buffers.values():
             if not buffer.is_empty():
@@ -78,6 +91,8 @@ class GroundRelayNode:
         return False
 
     def enqueue_packet(self, direction, packet):
+        packet.ttl -= 1
+        packet.dropped_direction = direction
         self.gsl_up_buffers[direction].enqueue(packet)
 
     def get_all_packets(self):

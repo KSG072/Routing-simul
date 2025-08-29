@@ -1,8 +1,8 @@
 /results/*.csv
 /results/legacy/
 /results/analyze_diff/
-/results/even traffic/
-/results/uneven traffic/
+/results/legacy/even traffic/
+/results/legacy/uneven traffic/
 /parameters/traffic/*
 !/parameters/traffic/traffic_histogram.py
 /utils/node counts/*

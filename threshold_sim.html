@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>스위칭 방향 결정 시뮬레이터</title>
+  <style>
+    body { font-family: system-ui,-apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#f8fafc; margin:0; color:#0f172a;}
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px;}
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    .desc { color:#334155; font-size: 14px; margin: 0 0 16px;}
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+    .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 12px 14px; box-shadow: 0 1px 0 rgba(0,0,0,0.03);}
+    label { font-weight: 600; display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px; }
+    .val { font-variant-numeric: tabular-nums; font-weight: 600; color:#0f172a; }
+    input[type=range]{ width: 100%; }
+    input[type=number]{ width: 100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius: 10px;}
+    .row2 { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .half label{ margin-bottom:6px;}
+    .tagline { grid-column: 1 / -1; font-size: 12px; color:#475569; background:#f1f5f9; padding:6px 8px; border-radius: 10px;}
+    .stat{ display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border:1px solid #bae6fd; background:#f0f9ff; border-radius: 10px; margin-bottom:8px;}
+    .stat.threshold{ border-color:#ddd6fe; background:#f5f3ff;}
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:13px;}
+    .cond{ border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; padding:8px 10px; margin-top:8px;}
+    .final{ display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-radius:14px; border:1px solid #e2e8f0; margin-top:10px;}
+    .final.v{ background:#e0f2fe;}
+    .final.h{ background:#f5e1ff;}
+    .legend{ display:flex; align-items:center; gap:10px; color:#475569; font-size:13px; margin-bottom:8px;}
+    .chip{ display:inline-block; width:12px; height:12px; border-radius:3px; }
+    .chip.v{ background:#38bdf8;}
+    .chip.h{ background:#a855f7;}
+    .spacer{ flex:1;}
+    .small{ font-size:12px; color:#64748b;}
+    .canvasWrap{ border:1px solid #e2e8f0; border-radius:16px; background:#f8fafc; padding:8px; text-align:center;}
+    .axis{ font-size:12px; color:#64748b; margin-top:4px;}
+    .tips{ margin-top:16px; padding:12px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:12px;}
+    ul{ margin:6px 0 0 16px;}
+    li{ margin:4px 0;}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React & Babel (브라우저에서 JSX 즉석 변환) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const BS = 500;
+
+    function decide(t_h, t_v, r_v_hop, r_h_hop, n1) {
+      const maxTVTH = Math.max(t_v, t_h);
+      const threshold = n1 * (2 * BS - maxTVTH);
+      const verticalPriority = Math.abs(r_v_hop) > Math.abs(r_h_hop);
+
+      let lhs, inequality, best;
+      if (verticalPriority) {
+        lhs = t_h - t_v;
+        inequality = "(t_h - t_v) ≤ threshold";
+        best = lhs <= threshold ? "vertical" : "horizontal";
+      } else {
+        lhs = t_v - t_h;
+        inequality = "(t_v - t_h) ≤ threshold";
+        best = lhs <= threshold ? "horizontal" : "vertical";
+      }
+      const margin = threshold - lhs;
+      return { threshold, verticalPriority, lhs, inequality, best, margin };
+    }
+
+    function drawDecisionMap(ctx, width, height, n1, r_v_hop, r_h_hop) {
+      const img = ctx.createImageData(width, height);
+      const data = img.data;
+      const verticalPriority = Math.abs(r_v_hop) > Math.abs(r_h_hop);
+      const toTH = (x) => (x / (width - 1)) * BS;
+      const toTV = (y) => ((height - 1 - y) / (height - 1)) * BS;
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const t_h = toTH(x);
+          const t_v = toTV(y);
+          const maxTVTH = Math.max(t_v, t_h);
+          const threshold = n1 * (2 * BS - maxTVTH);
+
+          let lhs, vertical;
+          if (verticalPriority) {
+            lhs = t_h - t_v;
+            vertical = lhs <= threshold;
+          } else {
+            lhs = t_v - t_h;
+            vertical = !(lhs <= threshold); // 조건 만족이면 수평, 아니면 수직
+          }
+
+          const idx = (y * width + x) * 4;
+          if (vertical) {
+            data[idx + 0] = 56;  data[idx + 1] = 189; data[idx + 2] = 248; data[idx + 3] = 160;
+          } else {
+            data[idx + 0] = 168; data[idx + 1] = 85;  data[idx + 2] = 247; data[idx + 3] = 160;
+          }
+        }
+      }
+
+      ctx.putImageData(img, 0, 0);
+      ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 2; ctx.strokeRect(0, 0, width, height);
+      ctx.font = "12px sans-serif"; ctx.fillStyle = "#0f172a";
+      ctx.fillText("t_h →", width - 44, height - 8);
+      ctx.save(); ctx.translate(6, 16); ctx.rotate(-Math.PI / 2); ctx.fillText("t_v →", 0, 0); ctx.restore();
+    }
+
+    function App() {
+      const [t_h, setTH] = React.useState(250);
+      const [t_v, setTV] = React.useState(250);
+      const [rv, setRV] = React.useState(3);
+      const [rh, setRH] = React.useState(2);
+      const [n1, setN1] = React.useState(0.5);
+
+      const result = React.useMemo(() => decide(t_h, t_v, rv, rh, n1), [t_h, t_v, rv, rh, n1]);
+
+      const canvasRef = React.useRef(null);
+      const width = 360, height = 360;
+
+      React.useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        drawDecisionMap(ctx, width, height, n1, rv, rh);
+
+        // 현재 포인터 (t_h, t_v)
+        const x = Math.round((t_h / BS) * (width - 1));
+        const y = Math.round((1 - t_v / BS) * (height - 1));
+        ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, height);
+        ctx.moveTo(0, y + 0.5); ctx.lineTo(width, y + 0.5);
+        ctx.stroke();
+        ctx.fillStyle = "#111827";
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+      }, [n1, rv, rh, t_h, t_v]);
+
+      const verticalPriorityLabel = result.verticalPriority ? "수직 우선" : "수평 우선";
+      const bestLabel = result.best === "vertical" ? "수직(vertical)" : "수평(horizontal)";
+
+      return (
+        <div className="wrap">
+          <h1>스위칭 방향 결정 시뮬레이터</h1>
+          <p className="desc">
+            Bs=500 고정. 슬라이더를 조정해 <code>threshold = n1 × (2×Bs - max(t_v,t_h))</code>가 어떻게 작동하는지 확인하세요.
+          </p>
+
+          <div className="grid">
+            <div className="panel">
+              <label>t_h (0~{BS}) <span className="val">{t_h}</span></label>
+              <input type="range" min="0" max={BS} step="1" value={t_h} onChange={(e)=>setTH(parseInt(e.target.value))}/>
+            </div>
+
+            <div className="panel">
+              <label>t_v (0~{BS}) <span className="val">{t_v}</span></label>
+              <input type="range" min="0" max={BS} step="1" value={t_v} onChange={(e)=>setTV(parseInt(e.target.value))}/>
+            </div>
+
+            <div className="panel">
+              <label>n1 <span className="val">{n1.toFixed(2)}</span></label>
+              <input type="range" min="0" max="2" step="0.01" value={n1} onChange={(e)=>setN1(parseFloat(e.target.value))}/>
+            </div>
+
+            <div className="panel row2">
+              <div className="half">
+                <label>r_v_hop (양의 정수)</label>
+                <input type="number" min="1" step="1" value={rv} onChange={(e)=>setRV(Math.max(1, Math.floor(Number(e.target.value)||1)))}/>
+              </div>
+              <div className="half">
+                <label>r_h_hop (양의 정수)</label>
+                <input type="number" min="1" step="1" value={rh} onChange={(e)=>setRH(Math.max(1, Math.floor(Number(e.target.value)||1)))}/>
+              </div>
+              <div className="tagline">Bs = {BS}, 2×Bs = {2*BS}</div>
+            </div>
+
+            <div className="panel">
+              <h2>결과</h2>
+              <div className="stat"><div>우선순위</div><b>{verticalPriorityLabel}</b></div>
+              <div className="stat"><div>max(t_v, t_h)</div><b>{Math.max(t_v,t_h)}</b></div>
+              <div className="stat threshold">
+                <div>threshold</div>
+                <div className="mono">n1 × (1000 - {Math.max(t_v,t_h)})</div>
+                <b>{result.threshold.toFixed(3)}</b>
+              </div>
+              <div className="cond">
+                <div className="mono">{result.inequality.replace("threshold", result.threshold.toFixed(3))}</div>
+                <div className="mono">lhs = {result.lhs.toFixed(3)}</div>
+                <div className="mono">margin = {result.margin.toFixed(3)}</div>
+              </div>
+              <div className={"final " + (result.best === "vertical" ? "v":"h")}>
+                <span>최종 선택</span>
+                <b>{bestLabel}</b>
+              </div>
+            </div>
+
+            <div className="panel">
+              <h2>(t_h, t_v) 지도</h2>
+              <div className="legend">
+                <span className="chip v"></span> 수직 선택
+                <span className="chip h"></span> 수평 선택
+                <span className="spacer"></span>
+                <span className="small">축 범위 0~{BS}</span>
+              </div>
+              <div className="canvasWrap">
+                <canvas ref={canvasRef} width={width} height={height}></canvas>
+                <div className="axis">t_v ↑ · t_h →</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="tips">
+            <b>해석 팁</b>
+            <ul>
+              <li>max가 클수록 threshold는 작아집니다 → 조건 만족이 어려워짐</li>
+              <li>r_v_hop &gt; r_h_hop이면 수직 우선으로 (t_h - t_v) ≤ threshold 평가</li>
+              <li>margin &gt; 0 이면 조건 만족 여유, &lt; 0이면 초과</li>
+            </ul>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>

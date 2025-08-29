@@ -465,8 +465,8 @@ def plot_node_counts_heatmap(
 
 if __name__ == '__main__':
     tv = TrafficVisualization()
-    node_counts_csv = "utils/node counts/node_counts_rate_160.csv"
-    src_dst_counts_csv = "utils/traffic counts/traffic_test_[1].csv"
+    node_counts_csv = "utils/node counts/node_counts_rate_200.csv"
+    src_dst_counts_csv = "utils/traffic counts/traffic_counts_200.csv"
     grid_degree = 5
     # fig, ax = visualize_relay(tv.ground_relays)
     #
@@ -486,7 +486,7 @@ if __name__ == '__main__':
     # 위성 및 지상 노드의 패킷 수신 밀도
     # plot_node_counts_heatmap(
     #     tv,
-    #     "Traffic Heatmap by Rounded Lat/Lon (160Mbps arrival rate)",
+    #     "Traffic Heatmap by Rounded Lat/Lon",
     #     node_counts_csv=node_counts_csv,
     #     value_col="total_counts",  # success_counts / drop_counts 로 바꿔도 OK
     #     rate_filter=None,  # [80,160] 같이 arrival_rate 필터링하고 싶으면 지정
@@ -497,26 +497,12 @@ if __name__ == '__main__':
     #     save_path=None,
     #     show=True
     # )
-    # # 출발, 도착 지점 결정 밀도
-    plot_node_counts_heatmap(
-        tv,
-        "Src/Dst Heatmap by Rounded Lat/Lon test",
-        node_counts_csv=src_dst_counts_csv,
-        value_col="total_counts",  # success_counts / drop_counts 로 바꿔도 OK
-        rate_filter=None,  # [80,160] 같이 arrival_rate 필터링하고 싶으면 지정
-        lon_range=(-180, 180),
-        lat_range=(-60, 60),
-        grid_deg=grid_degree,
-        show_colorbar=True,
-        save_path=None,
-        show=True
-    )
-    # # 출발, 도착 지점 결정 밀도 (드롭)
+    # # # 출발, 도착 지점 결정 밀도
     # plot_node_counts_heatmap(
     #     tv,
-    #     "Src/Dst Heatmap by Rounded Lat/Lon (160Mbps arrival rate)",
+    #     "Src/Dst Heatmap by Rounded Lat/Lon",
     #     node_counts_csv=src_dst_counts_csv,
-    #     value_col="drop_counts",  # success_counts / drop_counts 로 바꿔도 OK
+    #     value_col="total_counts",  # success_counts / drop_counts 로 바꿔도 OK
     #     rate_filter=None,  # [80,160] 같이 arrival_rate 필터링하고 싶으면 지정
     #     lon_range=(-180, 180),
     #     lat_range=(-60, 60),
@@ -525,3 +511,17 @@ if __name__ == '__main__':
     #     save_path=None,
     #     show=True
     # )
+    # # 출발, 도착 지점 결정 밀도 (드롭)
+    plot_node_counts_heatmap(
+        tv,
+        "Src/Dst Heatmap by Rounded Lat/Lon",
+        node_counts_csv=node_counts_csv,
+        value_col="drop_counts",  # success_counts / drop_counts 로 바꿔도 OK
+        rate_filter=None,  # [80,160] 같이 arrival_rate 필터링하고 싶으면 지정
+        lon_range=(-180, 180),
+        lat_range=(-60, 60),
+        grid_deg=grid_degree,
+        show_colorbar=True,
+        save_path=None,
+        show=True
+    )

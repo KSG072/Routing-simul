@@ -42,7 +42,7 @@ class Satellite:
         self.isl_left = None
         self.isl_right = None
         self.connected_grounds = []
-        self.disconnected = set()
+        self.disconnected = []
 
         #routing buffer queue (forwarding 기능은 외부에서 구현 예정)
         self.isl_up_buffer = Buffer('isl')
@@ -109,8 +109,9 @@ class Satellite:
 
     def link_to_ground(self, relay_id):
         self.connected_grounds.append(relay_id)
-        new_buffer = Buffer('down')
-        self.gsl_down_buffers[relay_id] = new_buffer
+        if relay_id not in self.gsl_down_buffers.keys():
+            new_buffer = Buffer('down')
+            self.gsl_down_buffers[relay_id] = new_buffer
 
     def receive_packet(self, packet):
         self.receiving.append(packet)
@@ -127,15 +128,21 @@ class Satellite:
         self.storage.extend(arrived)
 
     def enqueue_packet(self, direction, packet):
+        packet.ttl -= 1
         if direction == 0: # isl up
+            packet.dropped_direction = self.isl_up
             self.isl_up_buffer.enqueue(packet)
         elif direction == 1: # isl down
+            packet.dropped_direction = self.isl_down
             self.isl_down_buffer.enqueue(packet)
         elif direction == 2: # isl left
+            packet.dropped_direction = self.isl_left
             self.isl_left_buffer.enqueue(packet)
         elif direction == 3: # isl right
+            packet.dropped_direction = self.isl_right
             self.isl_right_buffer.enqueue(packet)
         else:
+            packet.dropped_direction = direction
             self.gsl_down_buffers[direction].enqueue(packet)
             pass
 
@@ -159,21 +166,10 @@ class Satellite:
 
     def drop_packet(self):
         dropped = []
-        dropped_up = self.isl_up_buffer.drop()
-        for p in dropped_up:
-            p.dropped_direction = self.isl_up
-
-        dropped_down = self.isl_down_buffer.drop()
-        for p in dropped_down:
-            p.dropped_direction = self.isl_down
-
-        dropped_left = self.isl_left_buffer.drop()
-        for p in dropped_left:
-            p.dropped_direction = self.isl_left
-
-        dropped_right = self.isl_right_buffer.drop()
-        for p in dropped_right:
-            p.dropped_direction = self.isl_right
+        dropped += self.isl_up_buffer.drop()
+        dropped += self.isl_down_buffer.drop()
+        dropped += self.isl_left_buffer.drop()
+        dropped += self.isl_right_buffer.drop()
 
         for direction, buffer in self.gsl_down_buffers.items():
             dropped += buffer.drop()
@@ -183,6 +179,17 @@ class Satellite:
         #     print(dropped)
         return dropped
 
+    def trash_packets(self):
+        disconnected = [ground_id for ground_id in self.gsl_down_buffers.keys() if ground_id not in self.connected_grounds]
+        if self.disconnected:
+            disconnected += self.disconnected
+        trash = []
+        for direction in disconnected:
+            disconnected_buffer = self.gsl_down_buffers.pop(direction)
+            trash += list(disconnected_buffer.buffer)
+        self.disconnected = []
+
+        return trash
 
     @staticmethod
     def _latlon_to_ecef(lat_deg, lon_deg, alt_km, re):

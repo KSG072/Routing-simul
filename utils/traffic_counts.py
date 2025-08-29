@@ -107,8 +107,10 @@ if __name__ == "__main__":
     # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
     BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results"
     # rates = [1]
+    # rates = (200, 280)
     rates = (40, 80, 120, 160, 200, 240, 280, 320, 360)
+    # rates = [360]
 
     for rate in rates:
         # export_node_counts(fr"{BASE}\limited_Q_with_GSL_{rate}.csv", f"traffic counts/0827_uneven/traffic_counts_rate_{rate}.csv")
-        export_node_counts(fr"{BASE}\limited_Q_with_GSL_{rate}.csv", f"traffic counts/traffic_test_{rate}.csv")
+        export_node_counts(fr"{BASE}\limited_Q_with_GSL_{rate}.csv", f"traffic counts/traffic_counts_{rate}.csv")

@@ -91,7 +91,14 @@ def sat_to_ground_forwarding(cur, packet, family):
         return False, packet, packet.ground_node
     else:
         candidates = [sat for sat in family if min((sat.orbit_idx - cur.orbit_idx + N)%N,(cur.orbit_idx - sat.orbit_idx + N)%N) <= MAX_SAT_P_DIFF]
-        candidates.remove(cur)
+        try:
+            candidates.remove(cur)
+        except ValueError:
+            print(cur)
+            print(packet.ground_node)
+            print(candidates)
+            packet.show_detailed()
+
         detour_key_node = min(candidates, key=lambda sat: sat.gsl_down_buffers[packet.ground_node].get_load_status())
         return True, packet, detour_key_node.node_id # 지상노드로 전송 안함
 
