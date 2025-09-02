@@ -51,7 +51,7 @@ class Packet:
         self.key_node = None # storage -> buffer 처리, curr == key_node일 때 바뀜
         self.ground_nodes = None # storage -> buffer 처리, curr == ground_node일 때 바뀜
         self.ground_node = None # storage -> buffer 처리, curr == ground_node일 때 바뀜
-        self.was_on_ground = None # storage -> buffer 처리, curr == ground_node일 때 바뀜
+        self.was_on_ground = False # storage -> buffer 처리, curr == ground_node일 때 바뀜
 
         self.result = [] # storage 들어갈 때 바뀜
         self.queuing_delays = []
@@ -63,6 +63,7 @@ class Packet:
         self.expected_delay = None
         self.expected_isl_delay = None
         self.expected_isl_length = None
+        self.detour_mode = False
 
 
         self.start_at = t
@@ -72,7 +73,6 @@ class Packet:
         self.ended_lat = None
         self.ended_lon = None
         self.dropped_direction = None
-        self.inconsistency = False
         self.ttl = TTL
         self.detour_at = []
 
@@ -91,7 +91,7 @@ class Packet:
     def set_path_info(self, path):
         self.source = path[0]
         self.curr = path[0]
-        self.was_on_ground = False if isinstance(self.source, int) else True
+        # self.was_on_ground = False if isinstance(self.source, int) else True
         self.destination = path[-1]
         self.path = path
         self.key_nodes = extract_key_nodes(self.path)

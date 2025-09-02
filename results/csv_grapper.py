@@ -885,6 +885,251 @@ def analyze_files_overall_boxplot(base_name, indices, directory='.',
     elif plot_e2e_delay:
         print("[INFO] No e2e delay data for boxplot.")
 
+# ================== 멀티 디렉토리 지원: overall 캐시 + 통합 플로팅 ==================
+
+def compute_or_load_overall_csv(base_name, indices, directory='.',
+                                target_range=(200, 600),
+                                cache_name='overall.csv',
+                                force_recompute=False):
+    """
+    directory 내부에 cache_name(overall.csv)이 있으면 읽고, 없거나 force_recompute=True면 계산해서 저장.
+    반환: pd.DataFrame(columns=['index','path_length_avg','path_length_min','path_length_max',
+                               'delay_avg','delay_min','delay_max','drop_prob'])
+    """
+    cache_path = Path(directory) / cache_name
+    if cache_path.exists() and not force_recompute:
+        try:
+            df_cached = pd.read_csv(cache_path)
+            needed = {'index','path_length_avg','path_length_min','path_length_max',
+                      'delay_avg','delay_min','delay_max','drop_prob'}
+            if needed.issubset(df_cached.columns):
+                return df_cached
+            else:
+                print(f"[WARN] {cache_path} 컬럼이 부족하여 재계산합니다.")
+        except Exception as e:
+            print(f"[WARN] {cache_path} 읽기 실패({e}). 재계산합니다.")
+
+    # ---- 없으면 계산 (기존 analyze_files_overall 계산 로직 재사용) ----
+    required_columns = {'Path Length', 'e2e delay', 'Status', 'Time (ms)'}
+    lo, hi = target_range
+    stats = {
+        "index": [], "path_length_avg": [], "path_length_min": [], "path_length_max": [],
+        "delay_avg": [], "delay_min": [], "delay_max": [], "drop_prob": []
+    }
+
+    for idx in indices:
+        filename = os.path.join(directory, f"{base_name}{idx}.csv")
+        if not os.path.exists(filename):
+            print(f"[SKIP] File {filename} not found.")
+            continue
+
+        df = pd.read_csv(filename, low_memory=False)
+        df.columns = [c.strip().replace("\ufeff","") for c in df.columns]
+        if not required_columns.issubset(df.columns):
+            print(f"[SKIP] {filename} 컬럼 부족: {required_columns - set(df.columns)}")
+            continue
+
+        # 시간 필터
+        df['Time (ms)'] = pd.to_numeric(df['Time (ms)'], errors='coerce')
+        df = df[(df['Time (ms)'] >= lo) & (df['Time (ms)'] < hi)]
+        if df.empty:
+            print(f"[SKIP] {idx}: Time(ms) in {target_range} 없음.")
+            continue
+
+        success_df = df[df['Status'] == 'success']
+        total_len = len(df)
+        success_ratio = len(success_df) / total_len if total_len > 0 else 0.0
+
+        stats["index"].append(idx)
+        if not success_df.empty:
+            success_df['Path Length'] = pd.to_numeric(success_df['Path Length'], errors='coerce')
+            success_df['e2e delay']   = pd.to_numeric(success_df['e2e delay'],   errors='coerce')
+
+            path_length = (success_df['Path Length'] - 1).dropna()
+            total_delay = success_df['e2e delay'].dropna()
+
+            stats["path_length_avg"].append(path_length.mean() if not path_length.empty else np.nan)
+            stats["path_length_min"].append(path_length.min()  if not path_length.empty else np.nan)
+            stats["path_length_max"].append(path_length.max()  if not path_length.empty else np.nan)
+
+            stats["delay_avg"].append(total_delay.mean() if not total_delay.empty else np.nan)
+            stats["delay_min"].append(total_delay.min()  if not total_delay.empty else np.nan)
+            stats["delay_max"].append(total_delay.max()  if not total_delay.empty else np.nan)
+        else:
+            stats["path_length_avg"].append(np.nan)
+            stats["path_length_min"].append(np.nan)
+            stats["path_length_max"].append(np.nan)
+            stats["delay_avg"].append(np.nan)
+            stats["delay_min"].append(np.nan)
+            stats["delay_max"].append(np.nan)
+
+        stats["drop_prob"].append(1 - success_ratio)
+
+    df_out = pd.DataFrame(stats)
+    # index 정렬(있을 경우)
+    if not df_out.empty:
+        df_out = df_out.sort_values('index').reset_index(drop=True)
+
+    # 캐시 저장
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    df_out.to_csv(cache_path, index=False, encoding='utf-8-sig')
+    return df_out
+
+
+def _plot_overall_from_many(dir_to_df, dir_names,
+                            legend_in_one=True,
+                            reserve_top=0.90):
+    """
+    dir_to_df: {dir_name: DataFrame(overall.csv)}
+    dir_names: 범례/색상 순서 제어용 리스트 (colors는 이 순서로 배정)
+    legend_in_one: True면 라벨을 "DIR (avg)" 형태로 하나의 범례로 처리.
+                   False면 '색=디렉토리', '스타일=통계치' 두 개의 범례를 분리(고급).
+    """
+    if not dir_to_df:
+        print("No dataframes to plot.")
+        return
+
+    # 디렉토리별 색 배정
+    # matplotlib 기본 color cycle에서 앞쪽 몇 개 사용
+    default_colors = plt.rcParams['axes.prop_cycle'].by_key().get('color', ['C0','C1','C2','C3','C4','C5'])
+    colors = {name: default_colors[i % len(default_colors)] for i, name in enumerate(dir_names)}
+
+    # 통계치별 스타일 프리셋
+    STYLES = {
+        'avg': dict(linestyle='-',  marker='o'),
+        'min': dict(linestyle='--', marker='^'),
+        'max': dict(linestyle=':',  marker='v'),
+    }
+
+    # ===== Plot 1: Path Length =====
+    fig1, ax1 = plt.subplots()
+    for name in dir_names:
+        df = dir_to_df.get(name)
+        if df is None or df.empty:
+            continue
+        x = df['index'].to_numpy()
+
+        for stat_key, label_suffix in [('path_length_avg','avg'), ('path_length_min','min'), ('path_length_max','max')]:
+            if stat_key not in df.columns:
+                continue
+            y = df[stat_key].to_numpy()
+            style = STYLES[label_suffix]
+            label = f"{name} ({label_suffix})" if legend_in_one else None
+            ax1.plot(x, y, color=colors[name], label=label, **style)
+
+    ax1.set_xlabel(r"$N_{p}$")
+    ax1.set_ylabel("Path Length (hops)")
+    ax1.set_xticks(sorted(np.unique(np.concatenate([df['index'].to_numpy() for df in dir_to_df.values() if not df.empty]))))
+    ax1.grid(True)
+    _apply_tick_style(ax1, x_minor_div=0, y_minor_div=5)
+
+    if legend_in_one:
+        fig1.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
+        ax1.legend(ncol=3, loc='upper center', bbox_to_anchor=(0.5, 0.99), frameon=True)
+    else:
+        # 색상용 범례(디렉토리)
+        color_handles = [plt.Line2D([0],[0], color=colors[name], lw=2, label=name) for name in dir_names]
+        # 스타일용 범례(통계치)
+        style_handles = [plt.Line2D([0],[0], color='k', lw=2, **STYLES[k], label=k) for k in ['avg','min','max']]
+        fig1.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
+        leg1 = fig1.legend(handles=color_handles, loc='upper left', bbox_to_anchor=(0.15, 0.99), ncol=2, frameon=True, title="Directory")
+        leg2 = fig1.legend(handles=style_handles, loc='upper right', bbox_to_anchor=(0.85, 0.99), ncol=3, frameon=True, title="Statistic")
+        ax1.add_artist(leg1)
+
+    plt.show()
+
+    # ===== Plot 2: End-to-End Delay =====
+    fig2, ax2 = plt.subplots()
+    for name in dir_names:
+        df = dir_to_df.get(name)
+        if df is None or df.empty:
+            continue
+        x = df['index'].to_numpy()
+        for stat_key, label_suffix in [('delay_avg','avg'), ('delay_min','min'), ('delay_max','max')]:
+            if stat_key not in df.columns:
+                continue
+            y = df[stat_key].to_numpy()
+            style = STYLES[label_suffix]
+            label = f"{name} ({label_suffix})" if legend_in_one else None
+            ax2.plot(x, y, color=colors[name], label=label, **style)
+
+    ax2.set_xlabel(r"Packet Arrival Rate (Mbps)")
+    ax2.set_ylabel("End-to-End Delay (ms)")
+    ax2.set_xticks(sorted(np.unique(np.concatenate([df['index'].to_numpy() for df in dir_to_df.values() if not df.empty]))))
+    ax2.grid(True)
+    _apply_tick_style(ax2, x_minor_div=0, y_minor_div=5)
+
+    if legend_in_one:
+        fig2.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
+        ax2.legend(ncol=3, loc='upper center', bbox_to_anchor=(0.5, 0.99), frameon=True)
+    else:
+        color_handles = [plt.Line2D([0],[0], color=colors[name], lw=2, label=name) for name in dir_names]
+        style_handles = [plt.Line2D([0],[0], color='k', lw=2, **STYLES[k], label=k) for k in ['avg','min','max']]
+        fig2.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
+        leg1 = fig2.legend(handles=color_handles, loc='upper left', bbox_to_anchor=(0.15, 0.99), ncol=2, frameon=True, title="Directory")
+        leg2 = fig2.legend(handles=style_handles, loc='upper right', bbox_to_anchor=(0.85, 0.99), ncol=3, frameon=True, title="Statistic")
+        ax2.add_artist(leg1)
+
+    plt.show()
+
+    # ===== Plot 3: Drop Probability =====
+    fig3, ax3 = plt.subplots()
+    for name in dir_names:
+        df = dir_to_df.get(name)
+        if df is None or df.empty:
+            continue
+        x = df['index'].to_numpy()
+        y = df['drop_prob'].to_numpy() if 'drop_prob' in df.columns else None
+        if y is None:
+            continue
+        ax3.plot(x, y, color=colors[name], linestyle='-', marker='o', label=name)
+
+    ax3.set_xlabel(r"Packet Arrival Rate (Mbps)")
+    ax3.set_ylabel("Drop Probability")
+    ax3.set_xticks(sorted(np.unique(np.concatenate([df['index'].to_numpy() for df in dir_to_df.values() if not df.empty]))))
+    ax3.set_ylim(bottom=0)
+    ax3.grid(True)
+    _apply_tick_style(ax3, x_minor_div=0, y_minor_div=0)
+
+    fig3.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
+    ax3.legend(ncol=min(4, len(dir_names)), loc='upper center', bbox_to_anchor=(0.5, 0.99), frameon=True, title="Directory")
+    plt.show()
+
+
+def analyze_files_overall_multi(base_name,
+                                indices,
+                                directories,   # 경로 리스트
+                                dir_names,     # 같은 길이의 라벨 리스트
+                                target_range=(200, 600),
+                                cache_name='overall.csv',
+                                force_recompute=False,
+                                legend_in_one=True):
+    """
+    여러 디렉토리에 대해:
+      1) 각 디렉토리에서 overall.csv가 없으면 계산 후 저장(있으면 스킵)
+      2) 각 디렉토리의 overall.csv를 읽어와
+      3) 한 그래프 위에 디렉토리별로 비교(색=디렉토리, 스타일=통계치)
+
+    directories, dir_names 길이는 같아야 함.
+    """
+    assert len(directories) == len(dir_names), "directories와 dir_names의 길이가 같아야 합니다."
+
+    dir_to_df = {}
+    for d, name in zip(directories, dir_names):
+        df_overall = compute_or_load_overall_csv(
+            base_name=base_name,
+            indices=indices,
+            directory=d,
+            target_range=target_range,
+            cache_name=cache_name,
+            force_recompute=force_recompute
+        )
+        if df_overall is None or df_overall.empty:
+            print(f"[INFO] {name}: 사용할 데이터가 없습니다.")
+            continue
+        dir_to_df[name] = df_overall
+
+    _plot_overall_from_many(dir_to_df, dir_names=dir_names, legend_in_one=legend_in_one)
 
 
 # 사용 예시
@@ -898,31 +1143,52 @@ if __name__ == '__main__':
         "Middle (max)", "Middle (avg)", "Middle (min)",
         "Low (max)", "Low (avg)", "Low (min)"
     ]
-    # CDF (200~600ms 범위만)
-    analyze_files_cdf(
-        base_name='limited_Q_with_GSL_',
-        indices=(40, 120, 200, 280, 360),
-        directory='.',
-        target_range=(200, 600)
+    # # CDF (200~600ms 범위만)
+    # analyze_files_cdf(
+    #     base_name='limited_Q_with_GSL_',
+    #     indices=(40, 120, 200, 280, 360),
+    #     directory='.',
+    #     target_range=(200, 600)
+    # )
+    #
+    # # Delay Components Bar (200~600ms 범위만)
+    # analyze_delay_components_bar(
+    #     base_name='limited_Q_with_GSL_',
+    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     directory='.',
+    #     agg='mean',
+    #     reserve_top=0.84,
+    #     target_range=(200, 600)
+    # )
+
+    # 비교 대상 디렉토리들
+    directories = [
+        r"./0829_GSL_TTL64",
+        r"./0829_ISL_TTL64"
+    ]
+    dir_names = [
+        "w/g (TTL=64)",
+        "o/s (TTL=64)"
+    ]
+
+    analyze_files_overall_multi(
+        base_name='result_',
+        indices=indices,
+        directories=directories,
+        dir_names=dir_names,
+        target_range=(200, 600),
+        cache_name="overall.csv",   # 디렉토리별 캐시 파일명
+        force_recompute=False,      # True면 캐시 무시하고 재계산
+        legend_in_one=False          # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
     )
 
-    # Delay Components Bar (200~600ms 범위만)
-    analyze_delay_components_bar(
-        base_name='limited_Q_with_GSL_',
-        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-        directory='.',
-        agg='mean',
-        reserve_top=0.84,
-        target_range=(200, 600)
-    )
-
-    # Overall (200~600ms 범위만)
-    analyze_files_overall(
-        base_name='limited_Q_with_GSL_',
-        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-        directory='.',
-        target_range=(200, 600)
-    )
+    # # Overall (200~600ms 범위만)
+    # analyze_files_overall(
+    #     base_name='limited_Q_with_GSL_',
+    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     directory='.',
+    #     target_range=(200, 600)
+    # )
 
     # analyze_files_overall_boxplot(
     #     base_name='limited_Q_with_GSL_',

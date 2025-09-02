@@ -32,7 +32,10 @@ from tqdm.auto import tqdm
 
 READ_CHUNKSIZE = 500_000
 ENCODING = "utf-8-sig"
-NEEDED_COLS = {"Drop Direction", "Drop Location", "Status", "result"}
+NEEDED_COLS = {
+    "Drop Direction", "Drop Location", "Status", "result",
+    "Queuing delays", "e2e delay",  # ← 추가
+}
 
 
 # -------- utils --------
@@ -72,8 +75,7 @@ def parse_result(cell) -> Optional[list]:
 
 
 def is_ground(token) -> bool:
-    """지상 노드 토큰은 문자열로 표기된다고 가정."""
-    return isinstance(token, str)
+    return isinstance(token, str) and re.search(r"[A-Za-z]+-.", token.strip()) is not None
 
 
 def parse_int(val) -> Optional[int]:
@@ -194,6 +196,30 @@ def parse_result_before_and_after(
         rec["total_counts"] += 1
         rec["drop_counts"] += 1
 
+def _accumulate_delay_stats(
+    seq, queuing_delays_cell, e2e_delay_val, table
+) -> None:
+    """
+    - seq: parse_result로 파싱된 result 리스트
+    - queuing_delays_cell: 문자열 형태의 리스트 예) "[0.0, 0.1, 0.0]"
+    - e2e_delay_val: 해당 행의 e2e delay (0일 수 있음)
+    - table: counts_by_rate[rate]
+    """
+    qlist = ast.literal_eval(str(queuing_delays_cell))
+    denom = float(e2e_delay_val)
+
+
+    for i, token in enumerate(seq):
+        if not isinstance(token, str):  # 지상 노드만
+            continue
+        if i >= len(qlist):
+            continue
+        q = float(qlist[i]) if qlist[i] is not None else 0.0
+        rec = table[token]
+        rec["sum_qdelay"] += q
+        rec["sum_qportion"] += (q / denom)
+        rec["delay_success_counts"] += 1
+
 def run(
     csv_files: Iterable[str],
     out_base: str = "relay_counts",
@@ -211,7 +237,15 @@ def run(
     # rate별 카운트 dict: rate -> { relay_id -> {total, success, drop} }
     counts_by_rate: Dict[str, Dict[Any, Dict[str, int]]] = defaultdict(
         lambda: defaultdict(
-            lambda: {"total_counts": 0, "success_counts": 0, "drop_counts": 0}
+            lambda: {
+                "total_counts": 0,
+                "success_counts": 0,
+                "drop_counts": 0,
+                # ↓ 새로 추가된 누적값
+                "sum_qdelay": 0.0,
+                "sum_qportion": 0.0,  # (큐잉지연 / e2e_delay) 합
+                "delay_success_counts": 0,  # ← 추가: 지연 평균용 분모
+            }
         )
     )
 
@@ -247,6 +281,8 @@ def run(
             )
             drop_loc_series = ch["Drop Location"] if "Drop Location" in ch.columns else None
             drop_dir_series = ch["Drop Direction"] if "Drop Direction" in ch.columns else None
+            qd_series = ch["Queuing delays"] if "Queuing delays" in ch.columns else None
+            e2e_series = ch["e2e delay"] if "e2e delay" in ch.columns else None
             seqs = ch["result"].map(parse_result)
 
             table = counts_by_rate[rate]
@@ -254,6 +290,8 @@ def run(
                 if not seq:
                     continue
                 is_success = bool(status.iloc[i] == "success") if status is not None else False
+                if is_success:
+                    _accumulate_delay_stats(seq, qd_series.iloc[i], e2e_series.iloc[i], table)
 
                 if counting_mode == "whole_route":
                     parse_result_in_whole_route(seq, is_success, table)
@@ -275,13 +313,15 @@ def run(
                     "total_counts": v["total_counts"],
                     "success_counts": v["success_counts"],
                     "drop_counts": v["drop_counts"],
+                    "avg_queuing_delay": v["sum_qdelay"]/v["delay_success_counts"],
+                    "delay_portion": v["sum_qportion"]/v["delay_success_counts"]
                 }
                 for rid, v in table.items()
             ]
             df_out = (
                 pd.DataFrame(
                     rows,
-                    columns=["node_id", "total_counts", "success_counts", "drop_counts"],
+                    columns=["node_id", "total_counts", "success_counts", "drop_counts", "avg_queuing_delay", "delay_portion"],
                 )
                 .sort_values(["total_counts", "success_counts"], ascending=[False, False])
             )
@@ -326,10 +366,10 @@ def run(
 if __name__ == "__main__":
     # 예시 경로 (사용자 환경에 맞게 수정하세요)
     # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
-    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results"
-    rates = (40, 80, 120, 160, 200, 240, 280, 320, 360)
+    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0831\rawdata"
+    rates = (40, 320)
     # rates = [360]
-    FILES: List[str] = [fr"{BASE}\limited_Q_with_GSL_{rate}.csv" for rate in rates]
+    FILES: List[str] = [fr"{BASE}\result_{rate}.csv" for rate in rates]
     # 모드 선택:
     # run(FILES, out_base="relay_counts", split_by_rate=False, counting_mode="whole_route")  # 기존 방식
     # run(FILES, out_base="relay_counts", split_by_rate=True,  counting_mode="whole_route")  # 기존 방식 + rate별

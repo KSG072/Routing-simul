@@ -52,12 +52,9 @@ class Buffer:
 
     def drop(self):
         dropped = []
-        if self.size <= self.capacity:
-            pass
-        else:
-            drop_count = self.size - self.capacity
-            for _ in range(drop_count):
-                dropped.append(self.dequeue())
+        while self.size > self.capacity:
+            dropped.append(self.buffer.pop())
+            self.size -= 1
         self.past_size = self.capture
         self.capture = self.size
         return dropped[::-1]

@@ -33,6 +33,8 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (needed for 3D)
 import time
 from tqdm.auto import tqdm
 
+from results.data_extractor import save_filtered_csv
+
 # 진행바 켜고 끄는 스위치
 USE_TQDM = True
 
@@ -64,7 +66,7 @@ ALPHA_BARS           = 0.85   # 3D 막대 투명도
 VIEW_ELEV            = 22     # 3D 뷰 elevation
 VIEW_AZIM            = -60    # 3D 뷰 azimuth (시계방향으로 돌리고 싶으면 감소 방향으로 조정)
 # ==== [글로벌 저장 옵션] ====
-SAVE_DIR = Path(r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\legacy\new_uneven\anal")  # ← 원하는 폴더
+SAVE_DIR = Path(r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0831_no zero cross")  # ← 원하는 폴더
 SAVE_FMT = "png"   # "png" / "pdf" 등
 SAVE_DPI = 200
 DEFAULT_SAVE_MODE = "save"   # "show" | "save" | "both"
@@ -1245,21 +1247,34 @@ def run(input_files):
     if df.empty:
         print("빈 데이터입니다."); return
     # by_rate 그래프(이미 생성률별 subplot)
-    save_mode = DEFAULT_SAVE_MODE
-    plot_path_length_by_rate(df, save_mode=save_mode)
-    plot_jump_count_by_rate(df, save_mode=save_mode)
-    # # 나머지는 각 함수에서 생성률별로 따로 그림
-    plot_cross_by_jump(df, save_mode=save_mode)
-    plot_pldiff_by_jump(df, save_mode=save_mode)
-    plot_pldiff_by_one_jump(df, save_mode=save_mode)
+
+    #현재 작업하고 싶은 구역
+    conditions_to_filter = {
+        'cross_counts': 0,
+        'jump_count': 1  # 참고: 이 함수는 jump_counts가 정확히 1인 경우만 찾습니다.
+    }
+    save_filtered_csv(
+        df=df,
+        filter_conditions=conditions_to_filter,
+        output_dir=SAVE_DIR,  # 스크립트 상단에 정의된 SAVE_DIR 사용
+        filename_suffix='_extract'
+    )
+
+    # save_mode = DEFAULT_SAVE_MODE
+    # plot_path_length_by_rate(df, save_mode=save_mode)
+    # plot_jump_count_by_rate(df, save_mode=save_mode)
+    # # # 나머지는 각 함수에서 생성률별로 따로 그림
+    # plot_cross_by_jump(df, save_mode=save_mode)
+    # plot_pldiff_by_jump(df, save_mode=save_mode)
+    # plot_pldiff_by_one_jump(df, save_mode=save_mode)
     # plot_pldiff_distribution_by_cross(df, save_mode=DEFAULT_SAVE_MODE)
-    # # plot_lines_by_jump(df, save_mode=save_mode)
-    plot_lines_by_cross(df, save_mode=save_mode)
+    # plot_lines_by_jump(df, save_mode=save_mode)
+    # plot_lines_by_cross(df, save_mode=save_mode)
     # plot_cdf_diff_isl_minus_e2e_by_cross(df, save_mode=save_mode)
-    plot_3d_bars(df, save_mode=save_mode)
+    # plot_3d_bars(df, save_mode=save_mode)
     # plot_3d_negative_ratio_by_jump_cross(df, save_mode=DEFAULT_SAVE_MODE)
     # plot_3d_mean_abs_gap_on_negative_by_jump_cross(df, save_mode=DEFAULT_SAVE_MODE)
-    plot_rate_delay_lines(df, save_mode=DEFAULT_SAVE_MODE)
+    # plot_rate_delay_lines(df, save_mode=DEFAULT_SAVE_MODE)
 
 
 if __name__ == "__main__":
@@ -1267,13 +1282,13 @@ if __name__ == "__main__":
     from glob import glob
 
     # 1) 직접 명시하는 방식 (권장: 확실함)
-    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\legacy\new_uneven"
-    RATES = [40, 80, 120, 160, 200, 240, 280, 320, 360] # 필요한 생성률만
+    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results"
+    RATES = [80,120,160,200,240,280,320,360] # 필요한 생성률만
     input_files = []
     for r in RATES:
         # 둘 다 GSL 결과(버퍼 제한/무제한)라면 이렇게 추가
         # input_files.append(os.path.join(BASE, f"infinite_Q_with_GSL_{r}.csv"))
-        input_files.append(os.path.join(BASE, f"limited_Q_with_GSL_{r}.csv"))
+        input_files.append(os.path.join(BASE, f"result_{r}.csv"))
 
     # 2) 또는 패턴으로 자동 수집 (원하면 주석 해제)
     # input_files = sorted(glob(os.path.join(BASE, "*_with_GSL_*.csv")))

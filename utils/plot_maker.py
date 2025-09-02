@@ -2,6 +2,7 @@ import csv
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
+from matplotlib.ticker import PercentFormatter
 
 
 def hop_distance():
@@ -169,7 +170,7 @@ def guess_continent(node_id: str) -> str:
 # ========= 데이터 로드 & 전처리 =========
 def load_counts(csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path, low_memory=False)
-    needed = {"node_id", "total_counts", "success_counts", "drop_counts"}
+    needed = {"node_id", "total_counts", "success_counts", "drop_counts", "avg_queuing_delay", "delay_portion"}
     miss = needed - set(df.columns)
     if miss:
         raise ValueError(f"CSV에 필요한 컬럼이 없습니다: {sorted(miss)}")
@@ -177,6 +178,10 @@ def load_counts(csv_path: str) -> pd.DataFrame:
     # 수치형 변환
     for c in ["total_counts", "success_counts", "drop_counts"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+    # ★ 지연 지표가 있으면 숫자 변환
+    for c in ["avg_queuing_delay", "delay_portion"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
 
     # 대륙라벨
     df["continent"] = df["node_id"].map(guess_continent)
@@ -299,6 +304,87 @@ def plot_per_continent_node_bars(df: pd.DataFrame):
     plt.tight_layout()
     plt.show()
 
+def plot_per_continent_node_metric_like_graph2(
+    df: pd.DataFrame,
+    y_var: str = "avg_queuing_delay",   # "avg_queuing_delay" 또는 "delay_portion"
+    portion_as_pct: bool = False,       # delay_portion을 %로 보고 싶으면 True
+):
+    """
+    그래프2와 레이아웃/정렬/라벨링은 동일, 단지 y값만 선택 지표로 바꿔서 표시.
+      - x: graph2와 동일(대륙별로 node_id, total_counts 내림차순 정렬)
+      - y: y_var 컬럼 값
+    """
+    if y_var not in df.columns:
+        print(f"[skip] '{y_var}' 컬럼이 CSV에 없습니다.")
+        return
+
+    continents = [c for c in CONTINENTS_ORDER if c in df["continent"].unique()]
+    if not continents:
+        print("[skip] 표시할 대륙 데이터가 없습니다.")
+        return
+
+    # 그래프2와 동일한 레이아웃
+    nrows, ncols = 2, 3
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4.5*ncols, 3.8*nrows), sharey=False)
+    axes = axes.ravel()
+
+    for idx, cont in enumerate(continents):
+        ax = axes[idx]
+        sub = df[df["continent"] == cont].copy()
+
+        # ★ 그래프2와 동일한 x축: total_counts 내림차순 정렬
+        sub = sub.sort_values("total_counts", ascending=False).reset_index(drop=True)
+
+        x = np.arange(len(sub))
+        y = sub[y_var].to_numpy(dtype=float)
+
+        # delay_portion을 %로 보고 싶으면 변환
+        if y_var == "delay_portion" and portion_as_pct:
+            y = y * 100.0
+
+        # 단일 막대(그래프2의 스택 대신, 값만 바뀐 막대)
+        ax.bar(x, y, color="tab:purple", width=0.8, label=y_var)
+
+        # y축 상단 여유 및 라벨(그래프2의 스타일을 비슷하게)
+        if len(y) > 0 and np.isfinite(y).any():
+            ymax = max(np.nanmax(y) * 1.12, 1e-12)
+            ax.set_ylim(0, ymax)
+            # 상단 값 표기
+            for xi, val in zip(x, y):
+                if np.isfinite(val):
+                    ax.text(xi, val + ymax * 0.01, f"{val:.3g}", ha="center", va="bottom", fontsize=7)
+
+        # x축 라벨 간격 처리 (그래프2 동일)
+        labels = sub["node_id"].astype(str).tolist()
+        step = max(1, len(labels) // 30)
+        shown_labels = [lab if (i % step == 0) else "" for i, lab in enumerate(labels)]
+        ax.set_xticks(x)
+        ax.set_xticklabels(shown_labels, rotation=90, fontsize=7)
+
+        # y축 라벨/포맷
+        if y_var == "delay_portion" and portion_as_pct:
+            ax.set_ylabel("delay_portion (%)")
+            ax.yaxis.set_major_formatter(PercentFormatter(xmax=100))
+        else:
+            ax.set_ylabel(y_var)
+
+        ax.set_title(f"{cont} (N={len(sub)})", fontsize=11)
+        ax.grid(axis="y", alpha=0.3)
+
+        # 범례는 첫 축에만 (옵션)
+        if idx == 0:
+            ax.legend(fontsize=8)
+
+    # 남는 축 비우기 (그래프2 동일)
+    for j in range(len(continents), len(axes)):
+        axes[j].set_visible(False)
+
+    title = f"Per-Continent Node Bars: {y_var}"
+    if y_var == "delay_portion" and portion_as_pct:
+        title += " (%)"
+    fig.suptitle(title, y=0.98)
+    plt.tight_layout()
+    plt.show()
 
 # ========= 메인 =========
 if __name__ == "__main__":
@@ -312,3 +398,5 @@ if __name__ == "__main__":
         plot_box_total_by_continent(df)
         # 2) 대륙별 노드 막대 (2×3 서브플롯 합계 6개) -> 총 7개 그래프
         plot_per_continent_node_bars(df)
+        # 3-변형) y값을 delay_portion(%)로
+        plot_per_continent_node_metric_like_graph2(df, y_var="avg_queuing_delay", portion_as_pct=True)

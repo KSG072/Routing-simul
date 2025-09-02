@@ -173,8 +173,6 @@ class Satellite:
 
         for direction, buffer in self.gsl_down_buffers.items():
             dropped += buffer.drop()
-            for p in dropped:
-                p.dropped_direction = direction
         # if dropped:
         #     print(dropped)
         return dropped

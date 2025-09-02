@@ -43,6 +43,6 @@ if __name__ == '__main__':
     for index in target:
         # filename = f"seogwon_results_only_ISL_{index}.csv"
         # split_csv_by_rows(filename, chunk_size=500000)
-        filename = f"limited_Q_with_GSL_{index}.csv"
+        filename = f"./analyze_diff/0831/rawdata/result_{index}.csv"
         # split_csv_by_rows(filename, chunk_size=500000)
         filtering_only_fail(filename, 'success')
