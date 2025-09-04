@@ -108,7 +108,7 @@ if __name__ == "__main__":
     BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0831\rawdata"
     # rates = [1]
     # rates = (200, 280)
-    rates = (40, 80, 120, 160, 200, 240, 280, 320, 360)
+    rates = (40, 200, 320)
     # rates = [360]
 
     for rate in rates:

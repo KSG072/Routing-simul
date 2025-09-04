@@ -3,8 +3,8 @@
 !/results/csv_spliter.py
 !/results/new_analyzer.py
 !/results/analyze_diff
-/parameters/traffic/*
-!/parameters/traffic/traffic_histogram.py
+/parameters/uneven traffic/*
+!/parameters/uneven traffic/traffic_histogram.py
 /utils/node counts/*
 /utils/relay counts/*
 /utils/traffic counts/*

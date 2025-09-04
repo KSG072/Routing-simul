@@ -1,4 +1,6 @@
 import os
+import re
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,10 +8,15 @@ from matplotlib import ticker
 from matplotlib.ticker import AutoMinorLocator
 from pathlib import Path
 
+from parameters.PARAMS import PACKET_SIZE_BITS, GIGA
+
 QOS_ORDER   = [0, 1, 2]
 QOS_COLORS  = {0:'red', 1:'orange', 2:'black'}
 QOS_LABELS  = {0: "High", 1: "Middle", 2: "Low"}
 QOS_MARKERS = {0: "o", 1: "s", 2: "^"}  # 평균선에만 마커
+# ---------- 분류 유틸(자급자족) ----------
+_GROUND_RE = re.compile(r'^[A-Za-z]+-\d+$')  # 지상 노드: 영문자-숫자
+_NUMERIC_RE = re.compile(r'^\d+$')  # 숫자 ID (위성)
 
 # QoS 문자열 ↔ 코드 매핑 (필요 시 사용)
 _QOS_LABELS = {0: "High", 1: "Middle", 2: "Low"}
@@ -888,7 +895,7 @@ def analyze_files_overall_boxplot(base_name, indices, directory='.',
 # ================== 멀티 디렉토리 지원: overall 캐시 + 통합 플로팅 ==================
 
 def compute_or_load_overall_csv(base_name, indices, directory='.',
-                                target_range=(200, 600),
+                                target_range=(200, 800),
                                 cache_name='overall.csv',
                                 force_recompute=False):
     """
@@ -914,7 +921,7 @@ def compute_or_load_overall_csv(base_name, indices, directory='.',
     lo, hi = target_range
     stats = {
         "index": [], "path_length_avg": [], "path_length_min": [], "path_length_max": [],
-        "delay_avg": [], "delay_min": [], "delay_max": [], "drop_prob": []
+        "delay_avg": [], "delay_min": [], "delay_max": [], "drop_prob": [], "generated": [], "success": [],"throughput": []
     }
 
     for idx in indices:
@@ -938,6 +945,7 @@ def compute_or_load_overall_csv(base_name, indices, directory='.',
 
         success_df = df[df['Status'] == 'success']
         total_len = len(df)
+
         success_ratio = len(success_df) / total_len if total_len > 0 else 0.0
 
         stats["index"].append(idx)
@@ -964,6 +972,9 @@ def compute_or_load_overall_csv(base_name, indices, directory='.',
             stats["delay_max"].append(np.nan)
 
         stats["drop_prob"].append(1 - success_ratio)
+        stats["throughput"].append(((len(success_df)/(hi-lo))*1000)/GIGA*PACKET_SIZE_BITS)
+        stats['generated'].append(total_len)
+        stats['success'].append(len(success_df))
 
     df_out = pd.DataFrame(stats)
     # index 정렬(있을 경우)
@@ -1095,6 +1106,31 @@ def _plot_overall_from_many(dir_to_df, dir_names,
     ax3.legend(ncol=min(4, len(dir_names)), loc='upper center', bbox_to_anchor=(0.5, 0.99), frameon=True, title="Directory")
     plt.show()
 
+    # ===== Plot 4: Throughput =====
+    fig4, ax4 = plt.subplots()
+    for name in dir_names:
+        df = dir_to_df.get(name)
+        if df is None or df.empty:
+            continue
+        x = df['index'].to_numpy()
+        y = df['throughput'].to_numpy() if 'throughput' in df.columns else None
+        if y is None:
+            continue
+        ax4.plot(x, y, color=colors[name], linestyle='-', marker='o', label=name)
+
+    ax4.set_xlabel(r"Packet Arrival Rate (Mbps)")
+    ax4.set_ylabel("Throughput (Gbps)")
+    ax4.set_xticks(
+        sorted(np.unique(np.concatenate([df['index'].to_numpy() for df in dir_to_df.values() if not df.empty]))))
+    ax4.set_ylim(bottom=50, top=200)
+    ax4.grid(True)
+    _apply_tick_style(ax4, x_minor_div=0, y_minor_div=0)
+
+    fig4.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
+    ax4.legend(ncol=min(4, len(dir_names)), loc='upper center', bbox_to_anchor=(0.5, 0.99), frameon=True,
+               title="Directory")
+    plt.show()
+
 
 def analyze_files_overall_multi(base_name,
                                 indices,
@@ -1104,6 +1140,7 @@ def analyze_files_overall_multi(base_name,
                                 cache_name='overall.csv',
                                 force_recompute=False,
                                 legend_in_one=True):
+
     """
     여러 디렉토리에 대해:
       1) 각 디렉토리에서 overall.csv가 없으면 계산 후 저장(있으면 스킵)
@@ -1131,6 +1168,179 @@ def analyze_files_overall_multi(base_name,
 
     _plot_overall_from_many(dir_to_df, dir_names=dir_names, legend_in_one=legend_in_one)
 
+
+def _is_ground_id(x) -> bool:
+    if pd.isna(x):
+        return False
+    return bool(_GROUND_RE.match(str(x).strip()))
+
+def _extract_nodes_from_result(result_cell: str):
+    """
+    result 문자열에서 '지상노드(영문자-숫자)' 또는 '숫자' 토큰을 추출해 리스트로 반환.
+    예: "[12, 'GR-1', 34]" -> ["12", "GR-1", "34"]
+    """
+    if pd.isna(result_cell):
+        return []
+    s = str(result_cell)
+    return re.findall(r'[A-Za-z]+-\d+|\d+', s)
+
+def _get_detour_flag(row) -> bool:
+    """
+    Detour mode는 항상 존재한다고 하셨으므로 그것만 사용.
+    True/False/문자/숫자 모두 허용.
+    """
+    val = row.get('Detour mode', None)
+    if isinstance(val, (bool, np.bool_)):
+        return bool(val)
+    sval = str(val).strip().lower()
+    return sval in ('true', 't', '1', 'yes', 'y')
+
+def _classify_row(row) -> str:
+    """
+    새 분류 흐름:
+    1) Drop Direction이 지상노드 => 'before g'
+    2) else:
+         - result 내 지상노드가 있고, result[-2]가 지상노드 => 'after g'
+         - else Detour mode True => 'detouring'
+         - else => 's to s'
+    """
+    drop_dir = row.get('Drop Direction', None)
+    if _is_ground_id(drop_dir):
+        return 'before g'
+
+    tokens = _extract_nodes_from_result(row.get('result', None))
+    if len(tokens) >= 2 and _is_ground_id(tokens[-2]):
+        return 'after g'
+
+    return 'detouring' if _get_detour_flag(row) else 's to s'
+def _classify_row_status(row) -> str:
+    """
+    새 분류 흐름:
+    1) Drop Direction이 지상노드 => 'before g'
+    2) else:
+         - result 내 지상노드가 있고, result[-2]가 지상노드 => 'after g'
+         - else Detour mode True => 'detouring'
+         - else => 's to s'
+    """
+    status = row.get('Status', None)
+    if status == 'drop':
+        return 'saturated'
+    elif status == 'failure':
+        return 'link fail'
+    else: # status == 'expired'
+        return 'expired'
+
+# ---------- 메인 플로팅 ----------
+def plot_drop_class_stacked_by_index(
+    base_dir='.',
+    indices=(40,80,120,160,200,240,280,320,360),
+    filename_tpl='result_{idx}_filtered(success).csv',
+    classes=('before g','after g','s to s','detouring'),  # other는 기본 제외
+    colors=None,          # dict: class -> color
+    figsize=(10,6),
+    annotate_total=True,  # 막대 위에 총 건수 N 표시
+    annotate_pct=True,    # 각 세그먼트 안에 % 표시(너무 얇으면 자동 생략)
+    pct_threshold=0.06,   # 막대 대비 세그먼트 비율이 이 값 미만이면 %표기 생략
+    edgecolor='black',
+    save_path=None,
+    show=True
+):
+    """
+    각 index 파일의 'drop_class'를 현장에서 계산하고, index마다 총 건수 높이의 누적막대를 그림.
+      - 누적 순서/색은 classes, colors로 제어
+      - 높이: 각 클래스 카운트(총합=막대 높이)
+      - 내부 라벨: 클래스 비율(%) (옵션)
+    """
+    # 색상 기본값
+    if colors is None:
+        colors = {
+            'saturated': '#1f77b4',  # 파랑
+            'expired': '#ff7f0e',  # 주황
+            'link fail': '#2ca02c',  # 초록
+            'before g': '#1f77b4',  # 파랑
+            'after g' : '#ff7f0e',  # 주황
+            's to s'  : '#2ca02c',  # 초록
+            'detouring': '#d62728', # 빨강
+            'other'   : '#7f7f7f',  # 회색(사용 안함)
+        }
+
+    xs      = []
+    totals  = []
+    stacks  = {cls: [] for cls in classes}
+
+    for idx in indices:
+        path = Path(base_dir) / filename_tpl.format(idx=idx)
+        if not path.exists():
+            print(f"[WARN] not found: {path}")
+            continue
+
+        df = pd.read_csv(path, low_memory=False)
+        df.columns = [c.strip().replace("\ufeff","") for c in df.columns]
+
+        # 분류
+        # df['drop_class'] = df.apply(_classify_row, axis=1)
+        df['drop_class'] = df.apply(_classify_row_status, axis=1)
+
+        # 카운트(필요 클래스만)
+        vc = df['drop_class'].value_counts()
+        total = int(vc.sum())
+        if total == 0:
+            print(f"[INFO] [{idx}] no rows.")
+            continue
+
+        xs.append(idx)
+        totals.append(total)
+        for cls in classes:
+            stacks[cls].append(int(vc.get(cls, 0)))
+
+        # 참고: other가 생기면 알려주기(기본 막대에는 포함 안하지만 알림)
+        if 'other' in vc and vc['other'] > 0:
+            print(f"[NOTE] [{idx}] 'other' count = {int(vc['other'])} (not plotted)")
+
+    if not xs:
+        print("[INFO] nothing to plot.")
+        return None, None
+
+    # --- 그리기 ---
+    x = np.arange(len(xs))
+    fig, ax = plt.subplots(figsize=figsize)
+
+    bottoms = np.zeros_like(x, dtype=float)
+    for cls in classes:
+        h = np.array(stacks[cls], dtype=float)
+        ax.bar(x, h, bottom=bottoms, width=0.7, label=cls,
+               color=colors.get(cls, '#cccccc'), edgecolor=edgecolor)
+        # 퍼센트 라벨
+        if annotate_pct:
+            for xi, hh, bot, tot in zip(x, h, bottoms, totals):
+                if tot <= 0 or hh <= 0: continue
+                frac = hh / tot
+                if frac >= pct_threshold:
+                    ax.text(xi, bot + hh/2, f"{frac*100:.0f}%",
+                            ha='center', va='center', fontsize=9, color='white')
+        bottoms += h
+
+    # 총 건수 라벨
+    if annotate_total:
+        for xi, tot in zip(x, totals):
+            ax.text(xi, tot, f"N={tot}", ha='center', va='bottom', fontsize=9)
+
+    # 축/격자/범례
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(v) for v in xs])
+    ax.set_xlabel("index (arrival rate)")
+    ax.set_ylabel("count (total drops)")
+    ax.set_ylim(0, max(totals) * 1.12)
+    ax.grid(True, axis='y', linestyle='--', alpha=0.4)
+    ax.legend(title="class", ncol=min(4, len(classes)))
+
+    plt.tight_layout()
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    if show:
+        plt.show()
+    return fig, ax
 
 # 사용 예시
 if __name__ == '__main__':
@@ -1163,7 +1373,7 @@ if __name__ == '__main__':
 
     # 비교 대상 디렉토리들
     directories = [
-        r"./0829_GSL_TTL64",
+        r"./analyze_diff/0831/rawdata",
         r"./0829_ISL_TTL64"
     ]
     dir_names = [
@@ -1176,11 +1386,27 @@ if __name__ == '__main__':
         indices=indices,
         directories=directories,
         dir_names=dir_names,
-        target_range=(200, 600),
+        target_range=(200, 800),
         cache_name="overall.csv",   # 디렉토리별 캐시 파일명
         force_recompute=False,      # True면 캐시 무시하고 재계산
         legend_in_one=False          # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
     )
+
+    # plot_drop_class_stacked_by_index(
+    #     base_dir='.',
+    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     filename_tpl='result_{idx}_filtered(success).csv',
+    #     # classes 순서/색 바꾸고 싶으면 여기서 지정
+    #     # classes=('before g','after g','s to s','detouring'),
+    #     classes=('saturated', 'expired', 'link fail'),
+    #     # colors={'before g':'#4e79a7','after g':'#f28e2b','s to s':'#59a14f','detouring':'#e15759'},
+    #     annotate_total=True,
+    #     annotate_pct=True,
+    #     pct_threshold=0.06,  # 세그먼트가 6% 미만이면 %라벨 생략
+    #     save_path=None, show=True
+    # )
+
+
 
     # # Overall (200~600ms 범위만)
     # analyze_files_overall(
@@ -1202,7 +1428,7 @@ if __name__ == '__main__':
     #     annotate_counts=True  # 각 박스 위에 표본 수 표시
     # )
 
-    #
+    # 생성된 시간에 따른 드롭율, 딜레이
     # plot_arrival_rate_avg_over_start_at('.', indices, start_range=(0, 1200), metric="drop_rate")
     # plot_arrival_rate_avg_over_start_at('.', indices, start_range=(0, 1200), metric="e2e_delay")
 

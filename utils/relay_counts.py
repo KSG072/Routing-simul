@@ -367,7 +367,7 @@ if __name__ == "__main__":
     # 예시 경로 (사용자 환경에 맞게 수정하세요)
     # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
     BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0831\rawdata"
-    rates = (40, 320)
+    rates = (40, 200, 320)
     # rates = [360]
     FILES: List[str] = [fr"{BASE}\result_{rate}.csv" for rate in rates]
     # 모드 선택:

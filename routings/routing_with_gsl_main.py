@@ -218,7 +218,7 @@ if __name__ == '__main__':
     """source ID, Dest ID  모든 파일에서 바꾸기"""
     header = [
         "Time (ms)", "source", "destination", "Path Length", "expected length", "Detour counts", "Detour log",
-        "cross counts", "result", "e2e delay", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay", "Detour mode"
+        "cross counts", "result", "e2e delay", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay", "Detour mode",
         "Status", "Drop Location", "Drop Direction", "Drop Latitude", "Drop Longitude", "TTL", "expected delay(result)", "expected delay(isl)","ISL Path Length"
     ]
     filepath = "../results"
@@ -337,18 +337,18 @@ if __name__ == '__main__':
                     new_packet.set_path_info(path[0])
                     new_packet.initial_length = path[1]
 
-                    """cross count = 0 인 jump는 배제"""
-                    if IF_ISL and new_packet.key_nodes:
-                        key_nodes_id = list(new_packet.key_nodes)
-                        key_nodes_id = [new_packet.key_node] + key_nodes_id
-                        key_nodes = deque(satellites[idx] for idx in key_nodes_id)
-                        cross_count = check_cross_counts(key_nodes)
-                        if cross_count < 1:
-                            # print("oh my god what are you doing")
-                            new_packet.set_path_info(isl_path)
-                            new_packet.result.pop()
-                            # new_packet.show_detailed()
-                            # print("go to ISL route")
+                    # """cross count = 0 인 jump는 배제"""
+                    # if IF_ISL and new_packet.key_nodes:
+                    #     key_nodes_id = list(new_packet.key_nodes)
+                    #     key_nodes_id = [new_packet.key_node] + key_nodes_id
+                    #     key_nodes = deque(satellites[idx] for idx in key_nodes_id)
+                    #     cross_count = check_cross_counts(key_nodes)
+                    #     if cross_count < 1:
+                    #         # print("oh my god what are you doing")
+                    #         new_packet.set_path_info(isl_path)
+                    #         new_packet.result.pop()
+                    #         # new_packet.show_detailed()
+                    #         # print("go to ISL route")
 
                     calculate_hop_distance(new_packet, satellites)
                     satellites[src].storage.append(new_packet)
@@ -638,6 +638,6 @@ if __name__ == '__main__':
         print(f"Dropped:   {drop_cnt}")
         print("--------------------------")
         now = datetime.now()
-        memo = "TTL64, if isl 비교용, cross = 0 케이스 제외, Detour mode 구현 후 재실험"
+        memo = "TTL64, if isl 비교용, cross = 0 케이스 포함, Detour mode 구현 후 재실험"
         summary_info = [[now.strftime('%Y-%m-%d %H:%M:%S'), total_time, genertation_rate,generated_count, succeeded, fail_cnt, drop_cnt, generated_count-ended, memo]]
         csv_write(summary_info, filepath, "summary.csv")

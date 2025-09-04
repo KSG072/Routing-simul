@@ -2,7 +2,7 @@ import os, csv
 from typing import Sequence, Any, Optional
 import numpy as np
 
-from parameters.PARAMS import inclination_deg, altitude_km, N, M, F, TRAFFIC_DENSITY
+from parameters.PARAMS import inclination_deg, altitude_km, N, M, F, TRAFFIC_DENSITY, TRAFFIC_DENSITY_UNIFORM
 from utils.walker_constellation import WalkerConstellation
 
 
@@ -275,7 +275,7 @@ if __name__ == "__main__":
         dst_nodes=satellites_dict.keys(),
         traffic_duration_ms=10_000,
         num_flows=3000,
-        rates_mbps=[40, 80, 120, 160, 200, 240, 280, 320, 360],          # 예시
+        rates_mbps=[1, 40, 80, 120, 160, 200, 240, 280, 320, 360],          # 예시
         rate_min_mbps=80,
         rate_max_mbps=360,
         rate_step_mbps=40,
@@ -287,7 +287,7 @@ if __name__ == "__main__":
         steady_state_start=True,
         start_on=True,
         warmup_ms=2000,
-        out_dir="../parameters/traffic",
+        out_dir="../parameters/even traffic",
         sats_group_by_grid=sats_group_by_grid,
-        traffic_map=TRAFFIC_DENSITY   # 🔥 rows×cols 어떤 크기든 OK
+        traffic_map=TRAFFIC_DENSITY_UNIFORM   # 🔥 rows×cols 어떤 크기든 OK
     )

@@ -41,8 +41,10 @@ class Packet:
         self.qos = qos
         self.curr_idx = 0
         self.source = None
-        self.source_lat = None # 해야함
-        self.source_lon = None # 해야함
+        self.source_lat = None # 패킷 생성시
+        self.source_lon = None # 패킷 생성시
+        self.dest_lat = None # 패킷 생성시
+        self.dest_lon = None # 패킷 생성시
         self.curr = None # storage 들어갈 때 바뀜
         self.destination = None
         self.path = None
@@ -78,6 +80,8 @@ class Packet:
 
         self.remaining_v_hops = None # curr == key_node & was_on_ground일 때, storage 들어갈 때 바뀜
         self.remaining_h_hops = None # curr == key_node & was_on_ground일 때, storage 들어갈 때 바뀜
+        self.initial_v_hops = None
+        self.initial_h_hops = None
 
 
     def end(self, t, state, end_node_id, lat, lon):
@@ -116,6 +120,8 @@ class Packet:
             return self.ground_node
 
     def set_remaining_hops(self, h, v):
+        self.initial_h_hops = h
+        self.initial_v_hops = v
         self.remaining_h_hops = h
         self.remaining_v_hops = v
 

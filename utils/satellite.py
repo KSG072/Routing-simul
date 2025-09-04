@@ -157,6 +157,14 @@ class Satellite:
                   gsl_packets, []]
         return result
 
+    def get_packet_number_to_target(self, target_id):
+        num = 0
+        for link in [self.isl_up_buffer, self.isl_down_buffer, self.isl_left_buffer, self.isl_right_buffer]:
+            for packet in link.buffer:
+                if packet.destination == target_id:
+                    num += 1
+        return num
+
     def has_packets(self):
         for buffer in self.gsl_down_buffers.values():
             if not buffer.is_empty():

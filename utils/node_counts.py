@@ -119,7 +119,7 @@ if __name__ == "__main__":
     # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
     BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0831\rawdata"
     # rates = [200]
-    rates = (40, 80, 120, 160, 200, 240, 280, 320, 360)
+    rates = [40, 200, 320]
     FILES: List[str] = [fr"{BASE}\result_{rate}.csv" for rate in rates]
 
     # run(FILES, out_base="node counts/node_counts", split_by_rate=False)

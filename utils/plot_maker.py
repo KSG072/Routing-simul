@@ -394,9 +394,9 @@ if __name__ == "__main__":
     if df.empty:
         print("[warn] 빈 데이터입니다. CSV 경로/포맷을 확인하세요.")
     else:
-        # 1) 대륙별 total_counts 박스플롯 (1개)
-        plot_box_total_by_continent(df)
-        # 2) 대륙별 노드 막대 (2×3 서브플롯 합계 6개) -> 총 7개 그래프
-        plot_per_continent_node_bars(df)
-        # 3-변형) y값을 delay_portion(%)로
-        plot_per_continent_node_metric_like_graph2(df, y_var="avg_queuing_delay", portion_as_pct=True)
+        # # 1) 대륙별 total_counts 박스플롯 (1개)
+        # plot_box_total_by_continent(df)
+        # # 2) 대륙별 노드 막대 (2×3 서브플롯 합계 6개) -> 총 7개 그래프
+        # plot_per_continent_node_bars(df)
+        # # 3-변형) y값을 delay_portion(%)로
+        plot_per_continent_node_metric_like_graph2(df, y_var="delay_portion", portion_as_pct=True)
