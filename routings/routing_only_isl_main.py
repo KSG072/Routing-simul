@@ -394,15 +394,15 @@ if __name__ == '__main__':
 
                     horizontal = satellites[s.isl_left if packet.remaining_h_hops < 0 else s.isl_right]
                     vertical = satellites[s.isl_down if packet.remaining_v_hops < 0 else s.isl_up]
-                    if len(packet.result) >= 2:
-                        if vertical.node_id == packet.result[-2]:
-                            vertical = satellites[s.isl_up] if vertical.node_id == s.isl_down else satellites[s.isl_down]
-                        elif horizontal.node_id == packet.result[-2]:
-                            horizontal = satellites[s.isl_left] if horizontal.node_id == s.isl_right else satellites[s.isl_right]
+                    # if len(packet.result) >= 2:
+                    #     if vertical.node_id == packet.result[-2]:
+                    #         vertical = satellites[s.isl_up] if vertical.node_id == s.isl_down else satellites[s.isl_down]
+                    #     elif horizontal.node_id == packet.result[-2]:
+                    #         horizontal = satellites[s.isl_left] if horizontal.node_id == s.isl_right else satellites[s.isl_right]
 
                     """위성-위성 라우팅 알고리즘 적용 부분 (Queuing delay는 여기서 계산됨)"""
-                    direction = get_next_hop_DBPR(s, horizontal, vertical, satellites[packet.destination])  # 0:up, 1:down, 2:left, 3:right
-                    # direction = sat_to_sat_forwarding_d(s, horizontal, vertical, packet) # 0:up, 1:down, 2:left, 3:right
+                    # direction = get_next_hop_DBPR(s, horizontal, vertical, satellites[packet.destination], packet)  # 0:up, 1:down, 2:left, 3:right
+                    direction = sat_to_sat_forwarding_d(s, horizontal, vertical, packet) # 0:up, 1:down, 2:left, 3:right
                     if packet.ttl <= 0:
                         failed.append(packet)
                     else:
@@ -550,7 +550,7 @@ if __name__ == '__main__':
         print(f"Dropped:   {drop_cnt}")
         print("--------------------------")
         now = datetime.now()
-        memo = "DBPR, ISL모드, TTL=128, 루프개선파일럿테스트"
+        memo = "동일세팅, ISL모드, TTL=64"
         summary_info = [
             [now.strftime('%Y-%m-%d %H:%M:%S'), total_time, genertation_rate, generated_count, succeeded, fail_cnt,
              drop_cnt, generated_count - ended, memo]]

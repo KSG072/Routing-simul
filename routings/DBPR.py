@@ -1,31 +1,44 @@
 import math
 
+from parameters.PARAMS import PACKET_SIZE_BITS, ISL_RATE_LASER, TAU
 
-def get_next_hop_DBPR(cur_sat, hor, ver, dst_sat):
+
+def get_next_hop_DBPR(cur_sat, hor, ver, dst_sat, packet):
     if ver.node_id == dst_sat.node_id:
         if cur_sat.isl_up == ver.node_id:
-            return 0
+            direction = 0
         else:
-            return 1
+            direction = 1
     elif hor.node_id == dst_sat.node_id:
         if cur_sat.isl_left == hor.node_id:
-            return 2
+            direction = 2
         else:
-            return 3
+            direction = 3
     else:
         Q_hor = get_virtual_DDD(hor, dst_sat)
         Q_ver = get_virtual_DDD(ver, dst_sat)
 
         if Q_ver < Q_hor:
             if cur_sat.isl_up == ver.node_id:
-                return 0
+                direction = 0
             else:
-                return 1
+                direction = 1
         else:
             if cur_sat.isl_left == hor.node_id:
-                return 2
+                direction = 2
             else:
-                return 3
+                direction = 3
+
+    if direction == 0:
+        packet.queuing_delays.append((cur_sat.isl_up_buffer.size*PACKET_SIZE_BITS)/(TAU*ISL_RATE_LASER))
+    elif direction == 1:
+        packet.queuing_delays.append((cur_sat.isl_down_buffer.size * PACKET_SIZE_BITS) / (TAU * ISL_RATE_LASER))
+    elif direction == 2:
+        packet.queuing_delays.append((cur_sat.isl_left_buffer.size * PACKET_SIZE_BITS) / (TAU * ISL_RATE_LASER))
+    else:
+        packet.queuing_delays.append((cur_sat.isl_right_buffer.size * PACKET_SIZE_BITS) / (TAU * ISL_RATE_LASER))
+
+    return direction
 
 # YDB
 def get_virtual_DDD(cur_sat, target_sat):
