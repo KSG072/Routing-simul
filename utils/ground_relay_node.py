@@ -106,6 +106,12 @@ class GroundRelayNode:
             "in queue": in_queue
         }
 
+    def total_buffer_load(self):
+        in_queue = 0
+        for buffer_obj in self.gsl_up_buffers.values():
+            in_queue += buffer_obj.size
+        return in_queue
+
     def __repr__(self):
         return (f"GroundRelayNode(id={self.node_id}, lat={self.latitude_deg:.2f}, "
                 f"lon={self.longitude_deg:.2f}, continent='{self.continent}')")

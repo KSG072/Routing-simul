@@ -36,7 +36,10 @@ NEEDED_COLS = {
     "Drop Direction", "Drop Location", "Status", "result",
     "Queuing delays", "e2e delay",  # ← 추가
 }
-
+def _avg(n, d):      # 안전한 평균
+    return (n / d) if d else 0.0
+def _finite_or_zero(x):
+    return x if math.isfinite(x) else 0.0
 
 # -------- utils --------
 def parse_result(cell) -> Optional[list]:
@@ -206,19 +209,34 @@ def _accumulate_delay_stats(
     - table: counts_by_rate[rate]
     """
     qlist = ast.literal_eval(str(queuing_delays_cell))
-    denom = float(e2e_delay_val)
-
+    try:
+        denom = float(e2e_delay_val)
+    except Exception:
+        denom = 0.0
 
     for i, token in enumerate(seq):
-        if not isinstance(token, str):  # 지상 노드만
+        if not isinstance(token, str):      # 지상 노드만
             continue
         if i >= len(qlist):
             continue
+
         q = float(qlist[i]) if qlist[i] is not None else 0.0
+        portion = (q / denom) if denom > 0 else 0.0
+
         rec = table[token]
+        # 합/카운트
         rec["sum_qdelay"] += q
-        rec["sum_qportion"] += (q / denom)
+        rec["sum_qportion"] += portion
         rec["delay_success_counts"] += 1
+        # ★ 최소/최대
+        if q < rec["min_qdelay"]:
+            rec["min_qdelay"] = q
+        if q > rec["max_qdelay"]:
+            rec["max_qdelay"] = q
+        if portion < rec["min_qportion"]:
+            rec["min_qportion"] = portion
+        if portion > rec["max_qportion"]:
+            rec["max_qportion"] = portion
 
 def run(
     csv_files: Iterable[str],
@@ -241,10 +259,15 @@ def run(
                 "total_counts": 0,
                 "success_counts": 0,
                 "drop_counts": 0,
-                # ↓ 새로 추가된 누적값
+                # 지연 누적/평균용
                 "sum_qdelay": 0.0,
                 "sum_qportion": 0.0,  # (큐잉지연 / e2e_delay) 합
-                "delay_success_counts": 0,  # ← 추가: 지연 평균용 분모
+                "delay_success_counts": 0,
+                # ★ 추가: 지연의 최소/최대
+                "min_qdelay": float("inf"),
+                "max_qdelay": float("-inf"),
+                "min_qportion": float("inf"),
+                "max_qportion": float("-inf"),
             }
         )
     )
@@ -307,21 +330,31 @@ def run(
     # ---- write out ----
     if split_by_rate:
         for rate, table in counts_by_rate.items():
-            rows = [
-                {
+            rows = []
+            for rid, v in table.items():
+                cnt = v["delay_success_counts"]
+                rows.append({
                     "node_id": rid,
                     "total_counts": v["total_counts"],
                     "success_counts": v["success_counts"],
                     "drop_counts": v["drop_counts"],
-                    "avg_queuing_delay": v["sum_qdelay"]/v["delay_success_counts"],
-                    "delay_portion": v["sum_qportion"]/v["delay_success_counts"]
-                }
-                for rid, v in table.items()
-            ]
+                    "avg_queuing_delay": _avg(v["sum_qdelay"], cnt),
+                    "delay_portion": _avg(v["sum_qportion"], cnt),
+                    # ★ 추가: 최솟값/최댓값
+                    "min_queuing_delay": _finite_or_zero(v["min_qdelay"]),
+                    "max_queuing_delay": _finite_or_zero(v["max_qdelay"]),
+                    "min_delay_portion": _finite_or_zero(v["min_qportion"]),
+                    "max_delay_portion": _finite_or_zero(v["max_qportion"]),
+                })
             df_out = (
                 pd.DataFrame(
                     rows,
-                    columns=["node_id", "total_counts", "success_counts", "drop_counts", "avg_queuing_delay", "delay_portion"],
+                    columns=[
+                        "node_id", "total_counts", "success_counts", "drop_counts",
+                        "avg_queuing_delay", "delay_portion",
+                        "min_queuing_delay", "max_queuing_delay",
+                        "min_delay_portion", "max_delay_portion",
+                    ],
                 )
                 .sort_values(["total_counts", "success_counts"], ascending=[False, False])
             )
@@ -333,15 +366,21 @@ def run(
         long_rows = []
         for rate, table in counts_by_rate.items():
             for rid, v in table.items():
-                long_rows.append(
-                    {
-                        "node_id": rid,
-                        "total_counts": v["total_counts"],
-                        "success_counts": v["success_counts"],
-                        "drop_counts": v["drop_counts"],
-                        "arrival_rate": rate,
-                    }
-                )
+                cnt = v["delay_success_counts"]
+                long_rows.append({
+                    "node_id": rid,
+                    "total_counts": v["total_counts"],
+                    "success_counts": v["success_counts"],
+                    "drop_counts": v["drop_counts"],
+                    "arrival_rate": rate,
+                    # ★ 추가
+                    "avg_queuing_delay": _avg(v["sum_qdelay"], cnt),
+                    "delay_portion": _avg(v["sum_qportion"], cnt),
+                    "min_queuing_delay": _finite_or_zero(v["min_qdelay"]),
+                    "max_queuing_delay": _finite_or_zero(v["max_qdelay"]),
+                    "min_delay_portion": _finite_or_zero(v["min_qportion"]),
+                    "max_delay_portion": _finite_or_zero(v["max_qportion"]),
+                })
         if not long_rows:
             print("[info] no relays found; nothing to write.")
             return
@@ -349,11 +388,11 @@ def run(
             pd.DataFrame(
                 long_rows,
                 columns=[
-                    "node_id",
-                    "total_counts",
-                    "success_counts",
-                    "drop_counts",
+                    "node_id", "total_counts", "success_counts", "drop_counts",
                     "arrival_rate",
+                    "avg_queuing_delay", "delay_portion",
+                    "min_queuing_delay", "max_queuing_delay",
+                    "min_delay_portion", "max_delay_portion",
                 ],
             ).sort_values(["arrival_rate", "total_counts"], ascending=[True, False])
         )
@@ -366,8 +405,8 @@ def run(
 if __name__ == "__main__":
     # 예시 경로 (사용자 환경에 맞게 수정하세요)
     # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
-    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0831\rawdata"
-    rates = (40, 200, 320)
+    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\tmc data rate rollback"
+    rates = [40,80,120,160,200,240,280,320,360]
     # rates = [360]
     FILES: List[str] = [fr"{BASE}\result_{rate}.csv" for rate in rates]
     # 모드 선택:

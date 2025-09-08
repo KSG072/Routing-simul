@@ -10,6 +10,7 @@ from random import choices, sample
 import os
 
 from routings.dijkstra import sat_to_sat_forwarding_d
+from routings.proposed import n_light_load_ground_node_in_south, build_path_via_mandatory_ground
 
 os.environ["PYCHARM_DISPLAY"] = "none"
 
@@ -221,14 +222,14 @@ if __name__ == '__main__':
         "cross counts", "result", "e2e delay", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay", "Detour mode",
         "Status", "Drop Location", "Drop Direction", "Drop Latitude", "Drop Longitude", "TTL", "expected delay(result)", "expected delay(isl)","ISL Path Length"
     ]
-    filepath = "../results"
-    IF_ISL = True
+    filepath = "../results/tmc data rate rollback"
+    IF_ISL = False
 
     # GSL O
     for genertation_rate in GENERATION_RATE_LIST:
         filename = "result_" + str(genertation_rate) + ".csv"
         csv_create(header, filepath, filename)
-        traffic_schedule_path = f'../parameters/traffic/events_{genertation_rate}Mbps.csv'
+        traffic_schedule_path = f'../parameters/uneven traffic (3000flows)/events_{genertation_rate}Mbps.csv'
         relay_csv_path = '../parameters/Ground_Relay_Coordinates.csv'
         results = []
         failed = []
@@ -324,6 +325,19 @@ if __name__ == '__main__':
                 # qos = choices(range(0, 3), weights=[0.2, 0.3, 0.5], k=num_of_packets)
                 # pair = np.random.choice(sat_id_list, 2, replace = False)
                 # src, dst = int(pair[0]), int(pair[1])
+                # # --- (① 조건 분기 + ② 후보 선택 + ③ 경로 변경) 시작 ---
+                # # ① 특정조건 만족(외부 bool 함수로 대체 예정): 우선 구조만 'if True'로 구성
+                # if check_pair(src,dst,FILTER_MODE,FILTER):
+                #     # ② 남반구 경량 지상노드 후보(사용자 구현 함수)
+                #     selected_ground = n_light_load_ground_node_in_south(ground_relays)
+                #
+                #     # ③ 후보 중 '선택한' 지상노드를 반드시 경유하는 새로운 경로 생성
+                #     #    - 다른 지상노드는 포함되면 안 됨 (내부에서 제거)
+                #     via_route = build_path_via_mandatory_ground(rtpg, src, dst, selected_ground)
+                #
+                #     paths = [via_route for _ in range(num_of_packets)]
+                # # --- (①②③) 끝 ---
+                # else:
                 paths = get_route_sat_to_sat(rtpg, src, dst, n=num_of_packets)
                 """만약에 만약에 지상 안 탔더라면~~~~ 안 타더라도 지연시간 예측한다면~~"""
                 if IF_ISL:
@@ -638,6 +652,6 @@ if __name__ == '__main__':
         print(f"Dropped:   {drop_cnt}")
         print("--------------------------")
         now = datetime.now()
-        memo = "TTL64, if isl 비교용, cross = 0 케이스 포함, Detour mode 구현 후 재실험"
+        memo = "tmc, num of flows = 3000, isl=2.5G, gsl=1.5/2G"
         summary_info = [[now.strftime('%Y-%m-%d %H:%M:%S'), total_time, genertation_rate,generated_count, succeeded, fail_cnt, drop_cnt, generated_count-ended, memo]]
         csv_write(summary_info, filepath, "summary.csv")

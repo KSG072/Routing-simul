@@ -400,7 +400,7 @@ class RTPRenderer:
         csv_path: str,
         chunksize: int = 200_000,
         verbose: bool = True,
-        id_regex: str = r"(\d+)$",   # 예: 'sat_123' → '123'
+        id_regex: str = r"(\d+)",   # 예: 'sat_123' → '123'
     ) -> dict:
         """
         CSV에서 status='drop' 행을 읽으며 진행률/요약을 콘솔에 출력하고,
@@ -441,59 +441,14 @@ class RTPRenderer:
         seen_rows = drop_rows = mapped_rows = 0
 
         # ------- pandas 청크 모드 -------
-        if pd is not None:
-            first_chunk = True
-            status_col = drop_col = None
-            for chunk in pd.read_csv(csv_path, chunksize=chunksize):
-                seen_rows += len(chunk)
 
-                if first_chunk:
-                    headers = list(chunk.columns)
-                    norm = {_norm_name(h): h for h in headers}
-                    status_col = next((norm[k] for k in status_keys if k in norm), None)
-                    drop_col   = next((norm[k] for k in drop_keys   if k in norm), None)
-                    if verbose:
-                        print(f"[drop-heatmap] columns: status={status_col}, drop={drop_col}")
-                    if not status_col or not drop_col:
-                        if verbose: print("[drop-heatmap] 필요한 컬럼을 찾지 못했습니다.")
-                        break
-                    first_chunk = False
+        first_chunk = True
+        status_col = drop_col = None
+        for chunk in pd.read_csv(csv_path, chunksize=chunksize):
+            seen_rows += len(chunk)
 
-                svals = chunk[status_col].astype(str).str.strip().str.lower()
-                mask_drop = svals.eq("drop") | svals.str.contains("drop", na=False)
-                drops = chunk.loc[mask_drop, drop_col].dropna()
-                drop_rows += len(drops)
-
-                for raw in drops.astype(str):
-                    raw = raw.strip()
-                    m = re.search(id_regex, raw) if id_regex else None
-                    key = m.group(1) if m else raw
-                    # 3.0 → 3 같은 숫자 문자열 정리
-                    try:
-                        vf = float(key)
-                        if math.isfinite(vf) and vf.is_integer():
-                            key = str(int(vf))
-                    except Exception:
-                        pass
-
-                    if key in valid_sat_ids:
-                        drop_counts[key] += 1
-                        mapped_rows += 1
-
-                if verbose:
-                    if total_rows:
-                        pct = seen_rows / total_rows * 100
-                        print(f"[drop-heatmap] processed {seen_rows:,}/{total_rows:,} rows ({pct:5.1f}%) "
-                              f"| drops {drop_rows:,} | mapped {mapped_rows:,}")
-                    else:
-                        print(f"[drop-heatmap] processed {seen_rows:,} rows | drops {drop_rows:,} | mapped {mapped_rows:,}")
-
-        # ------- 표준 csv 모드 -------
-        else:
-            progress_every = max(50_000, chunksize)
-            with open(csv_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                headers = reader.fieldnames or []
+            if first_chunk:
+                headers = list(chunk.columns)
                 norm = {_norm_name(h): h for h in headers}
                 status_col = next((norm[k] for k in status_keys if k in norm), None)
                 drop_col   = next((norm[k] for k in drop_keys   if k in norm), None)
@@ -501,34 +456,38 @@ class RTPRenderer:
                     print(f"[drop-heatmap] columns: status={status_col}, drop={drop_col}")
                 if not status_col or not drop_col:
                     if verbose: print("[drop-heatmap] 필요한 컬럼을 찾지 못했습니다.")
-                    return {}
+                    break
+                first_chunk = False
 
-                for row in reader:
-                    seen_rows += 1
-                    status_val = str(row.get(status_col, "")).strip().lower()
-                    if "drop" in status_val:
-                        raw = str(row.get(drop_col, "")).strip()
-                        if raw:
-                            m = re.search(id_regex, raw) if id_regex else None
-                            key = m.group(1) if m else raw
-                            try:
-                                vf = float(key)
-                                if math.isfinite(vf) and vf.is_integer():
-                                    key = str(int(vf))
-                            except Exception:
-                                pass
-                            if key in valid_sat_ids:
-                                drop_counts[key] += 1
-                                drop_rows += 1
-                                mapped_rows += 1
+            svals = chunk[status_col].astype(str).str.strip().str.lower()
+            mask_drop = svals.eq("drop") | svals.str.contains("drop", na=False)
+            drops = chunk.loc[mask_drop, drop_col].dropna()
+            drop_rows += len(drops)
 
-                    if verbose and (seen_rows % progress_every == 0):
-                        if total_rows:
-                            pct = seen_rows / total_rows * 100
-                            print(f"[drop-heatmap] processed {seen_rows:,}/{total_rows:,} rows ({pct:5.1f}%) "
-                                  f"| drops {drop_rows:,} | mapped {mapped_rows:,}")
-                        else:
-                            print(f"[drop-heatmap] processed {seen_rows:,} rows | drops {drop_rows:,} | mapped {mapped_rows:,}")
+            for raw in drops.astype(str):
+                raw = raw.strip()
+                m = re.search(id_regex, raw) if id_regex else None
+                key = m.group(1) if m else raw
+                # 3.0 → 3 같은 숫자 문자열 정리
+                try:
+                    vf = float(key)
+                    if math.isfinite(vf) and vf.is_integer():
+                        key = str(int(vf))
+                except Exception:
+                    pass
+
+                # if key in valid_sat_ids:
+                drop_counts[key] += 1
+                mapped_rows += 1
+
+            if verbose:
+                if total_rows:
+                    pct = seen_rows / total_rows * 100
+                    print(f"[drop-heatmap] processed {seen_rows:,}/{total_rows:,} rows ({pct:5.1f}%) "
+                          f"| drops {drop_rows:,} | mapped {mapped_rows:,}")
+                else:
+                    print(f"[drop-heatmap] processed {seen_rows:,} rows | drops {drop_rows:,} | mapped {mapped_rows:,}")
+
 
         # 요약 로그
         if verbose:
@@ -555,11 +514,11 @@ class RTPRenderer:
     # ==========================================
     def apply_drop_heatmap_blue_red(
         self,
-        csv_path: str = "results/limited_Q_with_GSL_320.csv",
+        csv_path: str = "results/tmc data rate rollback/result_360.csv",
         zero_color: VBase4 = VBase4(0.60, 0.60, 0.60, 1.0),  # 드롭 0인 위성은 회색
         chunksize: int = 200_000,
         verbose: bool = True,
-        id_regex: str = r"(\d+)$",
+        id_regex: str = r"(\d+)",
     ):
         """
         - 드롭 0: zero_color(회색)

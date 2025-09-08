@@ -66,7 +66,7 @@ ALPHA_BARS           = 0.85   # 3D 막대 투명도
 VIEW_ELEV            = 22     # 3D 뷰 elevation
 VIEW_AZIM            = -60    # 3D 뷰 azimuth (시계방향으로 돌리고 싶으면 감소 방향으로 조정)
 # ==== [글로벌 저장 옵션] ====
-SAVE_DIR = Path(r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0831\anal")  # ← 원하는 폴더
+SAVE_DIR = Path(r"/results/analyze_diff/tmc ttl128\anal")  # ← 원하는 폴더
 SAVE_FMT = "png"   # "png" / "pdf" 등
 SAVE_DPI = 200
 DEFAULT_SAVE_MODE = "save"   # "show" | "save" | "both"
@@ -1248,33 +1248,33 @@ def run(input_files):
         print("빈 데이터입니다."); return
     # by_rate 그래프(이미 생성률별 subplot)
 
-    #현재 작업하고 싶은 구역
-    conditions_to_filter = {
-        'cross_counts': 0,
-        'jump_count': 1  # 참고: 이 함수는 jump_counts가 정확히 1인 경우만 찾습니다.
-    }
-    save_filtered_csv(
-        df=df,
-        filter_conditions=conditions_to_filter,
-        output_dir=SAVE_DIR,  # 스크립트 상단에 정의된 SAVE_DIR 사용
-        filename_suffix='_extract'
-    )
+    # #현재 작업하고 싶은 구역
+    # conditions_to_filter = {
+    #     'cross_counts': 0,
+    #     'jump_count': 1  # 참고: 이 함수는 jump_counts가 정확히 1인 경우만 찾습니다.
+    # }
+    # save_filtered_csv(
+    #     df=df,
+    #     filter_conditions=conditions_to_filter,
+    #     output_dir=SAVE_DIR,  # 스크립트 상단에 정의된 SAVE_DIR 사용
+    #     filename_suffix='_extract'
+    # )
 
-    # save_mode = DEFAULT_SAVE_MODE
-    # plot_path_length_by_rate(df, save_mode=save_mode)
-    # plot_jump_count_by_rate(df, save_mode=save_mode)
-    # # # 나머지는 각 함수에서 생성률별로 따로 그림
-    # plot_cross_by_jump(df, save_mode=save_mode)
-    # plot_pldiff_by_jump(df, save_mode=save_mode)
-    # plot_pldiff_by_one_jump(df, save_mode=save_mode)
-    # plot_pldiff_distribution_by_cross(df, save_mode=DEFAULT_SAVE_MODE)
-    # plot_lines_by_jump(df, save_mode=save_mode)
-    # plot_lines_by_cross(df, save_mode=save_mode)
-    # plot_cdf_diff_isl_minus_e2e_by_cross(df, save_mode=save_mode)
-    # plot_3d_bars(df, save_mode=save_mode)
-    # plot_3d_negative_ratio_by_jump_cross(df, save_mode=DEFAULT_SAVE_MODE)
-    # plot_3d_mean_abs_gap_on_negative_by_jump_cross(df, save_mode=DEFAULT_SAVE_MODE)
-    # plot_rate_delay_lines(df, save_mode=DEFAULT_SAVE_MODE)
+    save_mode = DEFAULT_SAVE_MODE
+    plot_path_length_by_rate(df, save_mode=save_mode)
+    plot_jump_count_by_rate(df, save_mode=save_mode)
+    # # 나머지는 각 함수에서 생성률별로 따로 그림
+    plot_cross_by_jump(df, save_mode=save_mode)
+    plot_pldiff_by_jump(df, save_mode=save_mode)
+    plot_pldiff_by_one_jump(df, save_mode=save_mode)
+    plot_pldiff_distribution_by_cross(df, save_mode=DEFAULT_SAVE_MODE)
+    plot_lines_by_jump(df, save_mode=save_mode)
+    plot_lines_by_cross(df, save_mode=save_mode)
+    plot_cdf_diff_isl_minus_e2e_by_cross(df, save_mode=save_mode)
+    plot_3d_bars(df, save_mode=save_mode)
+    plot_3d_negative_ratio_by_jump_cross(df, save_mode=DEFAULT_SAVE_MODE)
+    plot_3d_mean_abs_gap_on_negative_by_jump_cross(df, save_mode=DEFAULT_SAVE_MODE)
+    plot_rate_delay_lines(df, save_mode=DEFAULT_SAVE_MODE)
 
 
 if __name__ == "__main__":
@@ -1282,8 +1282,8 @@ if __name__ == "__main__":
     from glob import glob
 
     # 1) 직접 명시하는 방식 (권장: 확실함)
-    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0831\rawdata"
-    RATES = [80,120,160,200,240,280,320,360] # 필요한 생성률만
+    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0904 tmc ttl128"
+    RATES = [40,80,120,160,200,240,280,320,360] # 필요한 생성률만
     input_files = []
     for r in RATES:
         # 둘 다 GSL 결과(버퍼 제한/무제한)라면 이렇게 추가

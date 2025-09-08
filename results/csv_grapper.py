@@ -1278,8 +1278,8 @@ def plot_drop_class_stacked_by_index(
         df.columns = [c.strip().replace("\ufeff","") for c in df.columns]
 
         # 분류
-        # df['drop_class'] = df.apply(_classify_row, axis=1)
-        df['drop_class'] = df.apply(_classify_row_status, axis=1)
+        df['drop_class'] = df.apply(_classify_row, axis=1)
+        # df['drop_class'] = df.apply(_classify_row_status, axis=1)
 
         # 카운트(필요 클래스만)
         vc = df['drop_class'].value_counts()
@@ -1371,62 +1371,79 @@ if __name__ == '__main__':
     #     target_range=(200, 600)
     # )
 
-    # 비교 대상 디렉토리들
-    directories = [
-        r"./analyze_diff/0831/rawdata",
-        r"./0829_ISL_TTL64"
-    ]
-    dir_names = [
-        "w/g (TTL=64)",
-        "o/s (TTL=64)"
-    ]
-
-    analyze_files_overall_multi(
-        base_name='result_',
-        indices=indices,
-        directories=directories,
-        dir_names=dir_names,
-        target_range=(200, 800),
-        cache_name="overall.csv",   # 디렉토리별 캐시 파일명
-        force_recompute=False,      # True면 캐시 무시하고 재계산
-        legend_in_one=False          # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
-    )
-
+    # # 비교 대상 디렉토리들
+    # directories = [
+    #     r"./tmc ttl128/DROP",
+    #     # r"./tmc isl ttl128",
+    #     r"./tmc ttl128/LENGTH",
+    # ]
+    # dir_names = [
+    #     "drop",
+    #     # "TMC (no GSL) (TTL=128)",
+    #     "legnth",
+    # ]
+    #
+    # analyze_files_overall_multi(
+    #     base_name='result_',
+    #     # indices=indices,
+    #     indices=[5,10,15,20],
+    #     directories=directories,
+    #     dir_names=dir_names,
+    #     target_range=(200, 400),
+    #     cache_name="overall.csv",   # 디렉토리별 캐시 파일명
+    #     force_recompute=False,      # True면 캐시 무시하고 재계산
+    #     legend_in_one=False          # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
+    # )
+    #
     # plot_drop_class_stacked_by_index(
-    #     base_dir='.',
-    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     base_dir='./tmc ttl128/DROP',
+    #     # indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     indices=[5,10,15,20],
     #     filename_tpl='result_{idx}_filtered(success).csv',
     #     # classes 순서/색 바꾸고 싶으면 여기서 지정
-    #     # classes=('before g','after g','s to s','detouring'),
-    #     classes=('saturated', 'expired', 'link fail'),
+    #     classes=('before g','after g','s to s','detouring'),
+    #     # classes=('saturated', 'expired', 'link fail'),
     #     # colors={'before g':'#4e79a7','after g':'#f28e2b','s to s':'#59a14f','detouring':'#e15759'},
     #     annotate_total=True,
     #     annotate_pct=True,
     #     pct_threshold=0.06,  # 세그먼트가 6% 미만이면 %라벨 생략
     #     save_path=None, show=True
     # )
+    plot_drop_class_stacked_by_index(
+        base_dir='./tmc data rate rollback',
+        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+        # indices=[5, 10, 15, 20],
+        filename_tpl='result_{idx}_filtered(success).csv',
+        # classes 순서/색 바꾸고 싶으면 여기서 지정
+        classes=('before g', 'after g', 's to s', 'detouring'),
+        # classes=('saturated', 'expired', 'link fail'),
+        # colors={'before g':'#4e79a7','after g':'#f28e2b','s to s':'#59a14f','detouring':'#e15759'},
+        annotate_total=True,
+        annotate_pct=True,
+        pct_threshold=0.06,  # 세그먼트가 6% 미만이면 %라벨 생략
+        save_path=None, show=True
+    )
 
 
+    # Overall (200~600ms 범위만)
+    analyze_files_overall(
+        base_name='result_',
+        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+        directory='./tmc data rate rollback',
+        target_range=(200, 600)
+    )
 
-    # # Overall (200~600ms 범위만)
-    # analyze_files_overall(
-    #     base_name='limited_Q_with_GSL_',
-    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-    #     directory='.',
-    #     target_range=(200, 600)
-    # )
-
-    # analyze_files_overall_boxplot(
-    #     base_name='limited_Q_with_GSL_',
-    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-    #     directory='.',
-    #     target_range=(200, 600),
-    #     plot_path_length=True,
-    #     plot_e2e_delay=True,
-    #     whis=(5, 95),  # 수염을 5~95 백분위로
-    #     showfliers=True,  # 아웃라이어 숨김
-    #     annotate_counts=True  # 각 박스 위에 표본 수 표시
-    # )
+    analyze_files_overall_boxplot(
+        base_name='result_',
+        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+        directory='./tmc data rate rollback',
+        target_range=(200, 600),
+        plot_path_length=True,
+        plot_e2e_delay=True,
+        whis=(5, 95),  # 수염을 5~95 백분위로
+        showfliers=True,  # 아웃라이어 숨김
+        annotate_counts=True  # 각 박스 위에 표본 수 표시
+    )
 
     # 생성된 시간에 따른 드롭율, 딜레이
     # plot_arrival_rate_avg_over_start_at('.', indices, start_range=(0, 1200), metric="drop_rate")

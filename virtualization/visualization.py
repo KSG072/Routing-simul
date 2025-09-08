@@ -479,6 +479,11 @@ class World(DirectObject):
         lines = LineSegs()
         lines.setColor(color)
         lines.setThickness(5.0)
+        src, dst = self.node_id_to_obj(path[0]), self.node_id_to_obj(path[-1])
+        src.marker.setScale(0.4)
+        dst.marker.setScale(0.4)
+        src.marker.setColor((1, 0, 0, 1))
+        dst.marker.setColor((0, 1, 0, 1))
 
         for i in range(len(path) - 1):
             obj1 = self.node_id_to_obj(path[i])

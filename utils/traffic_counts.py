@@ -105,10 +105,8 @@ def export_node_counts_events(events_csv,
 
 if __name__ == "__main__":
     # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
-    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\analyze_diff\0831\rawdata"
-    # rates = [1]
-    # rates = (200, 280)
-    rates = (40, 200, 320)
+    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\tmc ttl128\DROP"
+    rates = (5, 10, 15, 20)
     # rates = [360]
 
     for rate in rates:

@@ -33,16 +33,16 @@ def filtering_only_fail(file_path, except_status):
 
     # 필터링된 DataFrame을 새로운 CSV 파일로 저장합니다.
     # index=False는 행 번호를 저장하지 않는 옵션입니다.
-    filtered_df.to_csv(f'{name_without_ext}_filtered({except_status}).csv', index=False)
+    filtered_df.to_csv(f'{file_path.rstrip(base_name)}{name_without_ext}_filtered({except_status}).csv', index=False)
 
 # 사용 예시
 if __name__ == '__main__':
     target = [
-        40,80,120,160,200,240,280,320,360
+       40,80,120,160,200,240,280,320,360
     ]
     for index in target:
         # filename = f"seogwon_results_only_ISL_{index}.csv"
         # split_csv_by_rows(filename, chunk_size=500000)
-        filename = f"./analyze_diff/0831/rawdata/result_{index}.csv"
+        filename = f"./tmc data rate rollback/result_{index}.csv"
         # split_csv_by_rows(filename, chunk_size=500000)
         filtering_only_fail(filename, 'success')

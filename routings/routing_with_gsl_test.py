@@ -1,4 +1,4 @@
-# python 3.11.13
+#python 3.11.13
 from datetime import datetime
 from collections import deque
 from warnings import catch_warnings
@@ -6,11 +6,11 @@ from warnings import catch_warnings
 import numpy as np
 from numpy.linalg import norm
 from tqdm import tqdm
-from random import choices, sample
+from random import choices, sample, choice
 import os
 
-from routings.DBPR import get_next_hop_DBPR
 from routings.dijkstra import sat_to_sat_forwarding_d
+from routings.proposed import n_light_load_ground_node_in_south, build_path_via_mandatory_ground, check_pair
 
 os.environ["PYCHARM_DISPLAY"] = "none"
 
@@ -27,6 +27,47 @@ from utils.RTPGGraph import RTPGGraph
 from utils.user_node_generator import generate_users, generate_cities
 from utils.csv_maker import csv_write, csv_create
 
+
+def delay_estimation(path, satellites, ground_relays):
+    expected_delay = 0
+    cur = satellites[path[0]]
+    for hop in path[1:]:
+        is_satellite = isinstance(hop, int)
+        if is_satellite:
+            togo = satellites[hop]
+        else:
+            togo = ground_relays[hop]
+
+        cur_coords, togo_coords = cur.cartesian_coords, togo.cartesian_coords
+        expected_delay += calculate_prop_delay(cur_coords, togo_coords)
+
+        link = 'isl'
+        if isinstance(cur.node_id, int):
+            if cur.isl_up == hop:
+                q_size = cur.isl_up_buffer.size
+            elif cur.isl_down == hop:
+                q_size = cur.isl_down_buffer.size
+            elif cur.isl_left == hop:
+                q_size = cur.isl_left_buffer.size
+            elif cur.isl_right == hop:
+                q_size = cur.isl_right_buffer.size
+            else:
+                q_size = cur.gsl_down_buffers[hop].size
+                link = 'down'
+        else:
+            q_size = cur.gsl_up_buffers[hop].size
+            link = 'up'
+
+        if link == 'isl':
+            expected_delay += (q_size*PACKET_SIZE_BITS)/(TAU*ISL_RATE_LASER)
+        elif link == 'down':
+            expected_delay += (q_size * PACKET_SIZE_BITS) / (TAU * SGL_KA_DOWNLINK)
+        else:
+            expected_delay += (q_size * PACKET_SIZE_BITS) / (TAU * SGL_KA_UPLINK)
+
+        cur = togo
+
+    return expected_delay
 
 def update_rtpg(rtpg, satellites, ground_relays, mapper, only_isl=False):
     sat_region_indices = mapper.batch_map(satellites)
@@ -50,7 +91,6 @@ def update_rtpg(rtpg, satellites, ground_relays, mapper, only_isl=False):
 
     return rtpg
 
-
 # def get_route(rtpg, user, ground_relays, n=1):
 #     rtpg.add_user(user, (user.region_asc, user.region_desc), (user.search_regions_asc, user.search_regions_desc),
 #                   user.is_in_city)
@@ -72,6 +112,7 @@ def update_rtpg(rtpg, satellites, ground_relays, mapper, only_isl=False):
 #     return routes
 
 def get_route_sat_to_sat(rtpg, src, dst, n=1):
+
     # 최단 경로 찾기
     routes = []
     route = rtpg.dijkstra_shortest_path(source_id=src, target_id=dst, weight='weight')
@@ -79,7 +120,6 @@ def get_route_sat_to_sat(rtpg, src, dst, n=1):
         routes.append(route)
 
     return routes
-
 
 def calculate_hop_distance(packet, satellites):
     try:
@@ -89,19 +129,17 @@ def calculate_hop_distance(packet, satellites):
     except KeyError:
         print("D")
 
-
 def calculate_prop_delay(src, dst):
-    distance = norm(dst - src)
-    prop_delay_sec = distance / C
-    return prop_delay_sec * 1000
-
+    distance = norm(dst-src)
+    prop_delay_sec = distance/C
+    return prop_delay_sec*1000
 
 def transfer(sequences, next_hops, src_coords, disconnected=None):
     if disconnected is None:
         disconnected = []
-    direction = 0  # 0:up, 1:down, 2:left, 3:right, 4:ground, 5:satellite
+    direction = 0 # 0:up, 1:down, 2:left, 3:right, 4:ground, 5:satellite
     failed = []
-    for pkts in sequences:  # sequences: [[pkt, pkt, ...],[],[],[],[{gr1: [], gr2: [], ...}],[sat1: [], sat2: [], ...]]
+    for pkts in sequences: # sequences: [[pkt, pkt, ...],[],[],[],[{gr1: [], gr2: [], ...}],[sat1: [], sat2: [], ...]]
         if direction <= 3:
             for pkt in pkts:
                 if direction == 0:
@@ -158,10 +196,9 @@ def transfer(sequences, next_hops, src_coords, disconnected=None):
 
     return failed
 
-
 def check_cross_counts(nodes: deque):
-    # nodes = {key node1(down), key node2(up), ..., destination}
-    nodes.pop()  # destination 제거용
+    #nodes = {key node1(down), key node2(up), ..., destination}
+    nodes.pop() # destination 제거용
     cross_count = 0
     while nodes:
         down = nodes.popleft()
@@ -182,19 +219,24 @@ if __name__ == '__main__':
     """source ID, Dest ID  모든 파일에서 바꾸기"""
     header = [
         "Time (ms)", "source", "destination", "Path Length", "expected length", "Detour counts", "Detour log",
-        "cross counts", "result", "e2e delay", "Queuing delays", "Queuing Delay", "Propagation Delay",
-        "Transmission Delay", "Detour mode",
-        "Status", "Drop Location", "Drop Direction", "Drop Latitude", "Drop Longitude", "TTL", "expected delay(result)",
-        "expected delay(isl)", "ISL Path Length"
+        "cross counts", "result", "e2e delay", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay", "Detour mode",
+        "Status", "Drop Location", "Drop Direction", "Drop Latitude", "Drop Longitude", "TTL", "expected delay(result)", "expected delay(isl)","ISL Path Length"
     ]
-    filepath = "../results/dbpr data rate rollback"
+    filepath = f"../results/tmc ttl128/{FILTER_MODE}"
+    IF_ISL = False
 
-    # GSL O
-    for genertation_rate in GENERATION_RATE_LIST:
-        filename = "result_" + str(genertation_rate) + ".csv"
-        # filename = "infinite_Q_with_GSL_" + str(genertation_rate) + ".csv"
+    cut_rates = CUT_RATES
+    if FILTER_MODE == "LAT":
+        cut_rates = CUT_RATES_LAT
+
+    for cur_rate in cut_rates:
+        genertation_rate = 120
+        if FILTER_MODE == "LAT":
+            filename = "result_" + str(cur_rate) + ".csv"
+        else:
+            filename = "result_" + str(int((cur_rate/2640)*100)) + ".csv"
         csv_create(header, filepath, filename)
-        traffic_schedule_path = f'../parameters/uneven traffic (3000flows)/events_{genertation_rate}Mbps.csv'
+        traffic_schedule_path = f'../parameters/uneven traffic/events_{genertation_rate}Mbps.csv'
         relay_csv_path = '../parameters/Ground_Relay_Coordinates.csv'
         results = []
         failed = []
@@ -216,7 +258,7 @@ if __name__ == '__main__':
         """Constellation & 지상 노드 생성"""
         constellation = WalkerConstellation(N=N, M=M, F=F, altitude_km=altitude_km, inclination_deg=inclination_deg)
         constellation.generate_constellation()
-        satellites = constellation.get_all_satellites()  # dictionary
+        satellites = constellation.get_all_satellites() # dictionary
 
         ground_relays = load_ground_relays_from_csv(relay_csv_path, N * M)
         traffic_schedule = load_event_schedule(traffic_schedule_path)
@@ -229,10 +271,11 @@ if __name__ == '__main__':
         #     user = prepare_node_routing_metadata(user, mapper, 550)
 
         """초기 RTPG 생성"""
-        rtpg = update_rtpg(RTPGGraph(N=N, M=M, F=F), satellites.values(), ground_relays.values(), mapper, only_isl=True)
-        # rtpg_isl = update_rtpg(RTPGGraph(N=N, M=M, F=F), satellites.values(), ground_relays.values(), mapper, only_isl=True)
+        rtpg = update_rtpg(RTPGGraph(N=N, M=M, F=F), satellites.values(), ground_relays.values(), mapper)
         rtpg.integrity_check()
-        # rtpg_isl.integrity_check()
+        """ISL로 갔더라면? 버전"""
+        rtpg_isl = update_rtpg(RTPGGraph(N=N, M=M, F=F), satellites.values(), ground_relays.values(), mapper, only_isl=True)
+        rtpg_isl.integrity_check()
 
         """ =============================
                  Time loop 시작
@@ -250,12 +293,12 @@ if __name__ == '__main__':
             t = i * dt
             """RTPG 업데이트"""
             if t % 600 == 0 and t != 0:
-                rtpg.reset_graph()
-                # rtpg_isl.reset_graph()
                 for s in satellites.values():
                     s.update_lat_lon_for_RTPG()
-                rtpg = update_rtpg(rtpg, satellites.values(), ground_relays.values(), mapper, only_isl=True)
-                # rtpg_isl = update_rtpg(rtpg_isl, satellites.values(), ground_relays.values(), mapper, only_isl=True)
+                rtpg.reset_graph()
+                rtpg = update_rtpg(rtpg, satellites.values(), ground_relays.values(), mapper)
+                rtpg_isl.reset_graph()
+                rtpg_isl = update_rtpg(rtpg_isl, satellites.values(), ground_relays.values(), mapper, only_isl=True)
                 """끊긴 링크에 대한 처리 필요
                     1. trash_packets() 메서드 호출
                     - trash_packets(): 그래프 업데이트로 인해서 더 이상 key node가 아님에도, 패킷을 받거나 해당 방향으로 가는 큐의 패킷을 모두 버림
@@ -287,26 +330,60 @@ if __name__ == '__main__':
                 # qos = choices(range(0, 3), weights=[0.2, 0.3, 0.5], k=num_of_packets)
                 # pair = np.random.choice(sat_id_list, 2, replace = False)
                 # src, dst = int(pair[0]), int(pair[1])
-                paths = get_route_sat_to_sat(rtpg, src, dst, n=num_of_packets)
+                # --- (① 조건 분기 + ② 후보 선택 + ③ 경로 변경) 시작 ---
+                # ① 특정조건 만족(외부 bool 함수로 대체 예정): 우선 구조만 'if True'로 구성
+                if check_pair(satellites[src], satellites[dst], FILTER_MODE, cur_rate):
+                    # ② 남반구 경량 지상노드 후보(사용자 구현 함수)
+                    n = 1
+                    selected_grounds = n_light_load_ground_node_in_south(ground_relays.values(), n)
+                    selected_ground = choice(selected_grounds).node_id
 
+                    # ③ 후보 중 '선택한' 지상노드를 반드시 경유하는 새로운 경로 생성
+                    #    - 다른 지상노드는 포함되면 안 됨 (내부에서 제거)
+                    via_route = build_path_via_mandatory_ground(rtpg_isl, src, dst, selected_ground)
+
+                    paths = [via_route for _ in range(num_of_packets)]
+                # --- (①②③) 끝 ---
+                else:
+                    paths = get_route_sat_to_sat(rtpg, src, dst, n=num_of_packets)
+                """만약에 만약에 지상 안 탔더라면~~~~ 안 타더라도 지연시간 예측한다면~~"""
+                if IF_ISL:
+                    isl_path, isl_length = get_route_sat_to_sat(rtpg_isl, src, dst, n=1)[0]
+                    expected_delay = delay_estimation(paths[0][0], satellites, ground_relays)
+                    expected_isl_delay = delay_estimation(isl_path, satellites, ground_relays)
+                # """지금 갈 경로도 미리 계산 때려버려잇~~~~~"""
                 generated_count += num_of_packets
                 for path in paths:
                     new_packet = Packet(t, 0)
                     new_packet.set_path_info(path[0])
                     new_packet.initial_length = path[1]
-                    src_sat, dst_sat = satellites[src], satellites[dst]
-                    new_packet.source_lat, new_packet.source_lon = src_sat.latitude_deg, src_sat.longitude_deg
-                    new_packet.dest_lat, new_packet.dest_lon = dst_sat.latitude_deg, dst_sat.longitude_deg
+
+                    # """cross count = 0 인 jump는 배제"""
+                    # if IF_ISL and new_packet.key_nodes:
+                    #     key_nodes_id = list(new_packet.key_nodes)
+                    #     key_nodes_id = [new_packet.key_node] + key_nodes_id
+                    #     key_nodes = deque(satellites[idx] for idx in key_nodes_id)
+                    #     cross_count = check_cross_counts(key_nodes)
+                    #     if cross_count < 1:
+                    #         # print("oh my god what are you doing")
+                    #         new_packet.set_path_info(isl_path)
+                    #         new_packet.result.pop()
+                    #         # new_packet.show_detailed()
+                    #         # print("go to ISL route")
+
                     calculate_hop_distance(new_packet, satellites)
                     satellites[src].storage.append(new_packet)
                     new_packet.last_direction = satellites[src].is_ascending()
-
+                    if IF_ISL:
+                        new_packet.expected_isl_delay = expected_isl_delay
+                        new_packet.expected_isl_length = isl_length
+                        new_packet.expected_delay = expected_delay
             """
             각 패킷은 아래의 속성을 가짐 
             1. remaining_v_hops (key_nodes의 0번째에 도달할 수 있는 최단 수직홉 거리)
             2. remaining_h_hops (최단 수평홉 거리, 목적지는 위와 동일)
             각 속성은 양수일 경우 우/상향, 음수일 경우 좌/하향 방향을 나타냄
-
+            
             시뮬레이션은 아래 세 페이즈로 구성됨
 
             1. 전송 페이즈: 방향 큐에 있는 패킷을 일괄적으로 다음 홉으로 전송하는 과정 (라우팅 알고리즘은 이미 수행 된 후)
@@ -320,8 +397,8 @@ if __name__ == '__main__':
 
             for s in satellites.values():
                 if s.has_packets():
-                    bullets = s.get_packets(dt)  # (up, down, left, right, ground, satellite=[])로 보낼 패킷 리스트
-                    next_hops = [  # (up, down, left, right, ground, satellite) 방향 다음 홉
+                    bullets = s.get_packets(dt) # (up, down, left, right, ground, satellite=[])로 보낼 패킷 리스트
+                    next_hops = [ # (up, down, left, right, ground, satellite) 방향 다음 홉
                         satellites[s.isl_up], satellites[s.isl_down],
                         satellites[s.isl_left], satellites[s.isl_right],
                         {node_id: ground_relays[node_id] for node_id in s.gsl_down_buffers.keys()}, []
@@ -332,8 +409,8 @@ if __name__ == '__main__':
 
             for g in ground_relays.values():
                 if g.has_packets():
-                    bullets = g.get_packets(dt)  # (up=[], down=[], left=[], right=[], ground=[], satellite)로 보낼 패킷 리스트
-                    next_hops = [  # (up, down, left, right, ground, satellite) 방향 다음 홉
+                    bullets = g.get_packets(dt) # (up=[], down=[], left=[], right=[], ground=[], satellite)로 보낼 패킷 리스트
+                    next_hops = [ # (up, down, left, right, ground, satellite) 방향 다음 홉
                         [], [],
                         [], [],
                         [], {node_id: satellites[node_id] for node_id in g.gsl_up_buffers.keys()}
@@ -383,27 +460,58 @@ if __name__ == '__main__':
             """
 
             for s in satellites.values():
+                is_ascending = s.is_ascending()
                 while s.storage:
                     packet = s.storage.popleft()
+                    if packet.was_on_ground and (packet.last_direction is not is_ascending): # cross count
+                        packet.cross_count += 1
+                    packet.last_direction = is_ascending
 
-                    if packet.curr == packet.destination:  # 도착, success
+                    if packet.curr == packet.destination: # 도착, success
                         end_node = s
                         packet.end(t, 'success', s.node_id, s.latitude_deg, s.longitude_deg)
                         results.append(packet)
                         succeeded += 1
                         continue
 
+                    if packet.curr == packet.key_node:
+                        key_node = packet.next_key_node_id()
+                        if (not packet.was_on_ground) or (packet.was_on_ground and packet.curr == key_node): # 위성으로부터 받은 패킷이거나, 지상에서 올라오자마자 내려가야하는 경우
+                            """지상으로 갈 수 없는 경우"""
+                            if packet.ttl <= 0 or packet.ground_node not in s.gsl_down_buffers.keys():
+                                failed.append(packet)
+                                continue
+                            """지상으로 갈 수 있는 경우"""
+                            if packet.was_on_ground: # 올라오자마자 지상으로
+                                packet.was_on_ground = False
+                                packet.next_key_node_id()
+                            # 위성 홉 거친 후 지상으로
+                            family = [satellites[node_id] for node_id in ground_relays[packet.ground_node].connected_sats]
+                            need_detour, packet, direction = sat_to_ground_forwarding(s, packet, family)
+                            if need_detour: # 바로 못가고 다른 key node로 가야할 경우
+                                packet.detour_mode = True
+                                packet.detour_at.append((packet.curr, direction))
+                                packet.key_nodes.appendleft(packet.key_node)
+                                packet.set_key_node(direction)  # 새로운 keynode 설정
+                                calculate_hop_distance(packet, satellites)
+                                # packet.show_detailed()
+                            else: # 바로 가는 경우
+                                packet.detour_mode = False
+                                if packet.ttl <= 0:
+                                    failed.append(packet)
+                                else:
+                                    s.enqueue_packet(direction, packet)
+                                continue  # 지상 큐에 삽입 후 다음 패킷 처리
+                        else: # 지상으로부터 받은 패킷이고, 다른 위성으로 가야하는 경우
+                            calculate_hop_distance(packet, satellites)
+                            packet.was_on_ground = False
+
+                    # 단순 위성 포워딩 (잔여 홉 있음)
+
                     horizontal = satellites[s.isl_left if packet.remaining_h_hops < 0 else s.isl_right]
                     vertical = satellites[s.isl_down if packet.remaining_v_hops < 0 else s.isl_up]
                     """위성-위성 라우팅 알고리즘 적용 부분 (Queuing delay는 여기서 계산됨)"""
-                    # dbpr
-                    if len(packet.result) >= 2:
-                        if vertical.node_id == packet.result[-2]:
-                            vertical = satellites[s.isl_up] if vertical.node_id == s.isl_down else satellites[s.isl_down]
-                        elif horizontal.node_id == packet.result[-2]:
-                            horizontal = satellites[s.isl_left] if horizontal.node_id == s.isl_right else satellites[s.isl_right]
-                    direction = get_next_hop_DBPR(s, horizontal, vertical, satellites[packet.destination], packet)  # 0:up, 1:down, 2:left, 3:right
-                    # TMC
+                    direction = sat_to_sat_forwarding(s, horizontal, vertical, packet) # 0:up, 1:down, 2:left, 3:right
                     # direction = sat_to_sat_forwarding_d(s, horizontal, vertical, packet) # 0:up, 1:down, 2:left, 3:right
                     if packet.ttl <= 0:
                         failed.append(packet)
@@ -466,33 +574,41 @@ if __name__ == '__main__':
                         print(f"satellite {s.node_id} and {g.node_id} is disconnected")
                         disconnect_pair.append((s, g))
 
+
             rows = []
             ended += len(results)
             while results:
                 packet = results.pop(0)
-                common_data = [packet.start_at, packet.source, packet.destination, len(packet.result),
-                               packet.initial_length, len(packet.detour_at), packet.detour_at, packet.cross_count,
-                               packet.result,
-                               sum(packet.queuing_delays) + packet.propagation_delays + packet.transmission_delay,
-                               packet.queuing_delays, sum(packet.queuing_delays), packet.propagation_delays,
-                               packet.transmission_delay, packet.detour_mode]
+                common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), packet.initial_length, len(packet.detour_at), packet.detour_at, packet.cross_count, packet.result,
+                               sum(packet.queuing_delays)+packet.propagation_delays+packet.transmission_delay, packet.queuing_delays, sum(packet.queuing_delays), packet.propagation_delays, packet.transmission_delay, packet.detour_mode]
                 if packet.success:
                     drop_data = [packet.state, None, None, None, None, packet.ttl]
                 else:
-                    drop_data = [packet.state, packet.dropped_node, packet.dropped_direction, packet.ended_lat,
-                                 packet.ended_lon, packet.ttl]
-
-                row = common_data + drop_data + [None, None, None]
+                    drop_data = [packet.state, packet.dropped_node, packet.dropped_direction, packet.ended_lat, packet.ended_lon, packet.ttl]
+                if IF_ISL:
+                    data_if = [packet.expected_delay, packet.expected_isl_delay, packet.expected_isl_length]
+                else:
+                    data_if = [None, None, None]
+                row = common_data + drop_data + data_if
                 rows.append(row)
             csv_write(rows, filepath, filename)
             # generation rate에 대한 for문 종료
-            # 나머지 데이터 입력
+
+            if t != 0 and t%250 == 0:
+                print(f"\n--- Simulation Processing ({t/steps})---")
+                print(f"Generated: {generated_count}")
+                print(f"Ended:     {ended}")
+                print(f"Succeeded: {succeeded}")
+                print(f"Failed:    {fail_cnt}")
+                print(f"Dropped:   {drop_cnt}")
+                print("--------------------------")
+
+        #나머지 데이터 입력
         rows = []
         ended += len(results)
         while results:
             packet = results.pop(0)
-            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result),
-                           packet.initial_length,
+            common_data = [packet.start_at, packet.source, packet.destination, len(packet.result), packet.initial_length,
                            len(packet.detour_at), packet.detour_at, packet.cross_count, packet.result,
                            sum(packet.queuing_delays) + packet.propagation_delays + packet.transmission_delay,
                            packet.queuing_delays, sum(packet.queuing_delays), packet.propagation_delays,
@@ -502,47 +618,48 @@ if __name__ == '__main__':
             else:
                 drop_data = [packet.state, packet.dropped_node, packet.dropped_direction, packet.ended_lat,
                              packet.ended_lon, packet.ttl]
-
-            row = common_data + drop_data + [None, None, None]
+            if IF_ISL:
+                data_if = [packet.expected_delay, packet.expected_isl_delay, packet.expected_isl_length]
+            else:
+                data_if = [None, None, None]
+            row = common_data + drop_data + data_if
             rows.append(row)
         csv_write(rows, filepath, filename)
 
-        # """ 잔여 패킷 별도 csv 저장 """
-        # rest_packet_filename = f"limited_Q_with_GSL_{genertation_rate}_rest.csv"
-        # rest_packet_file_header = [
-        #     "Time (ms)", "source", "destination", "current", "location", "Path Length", "Detour counts", "Detour log",
-        #     "cross counts", "result", "e2e delay", "Queuing delays", "Queuing Delay", "Propagation Delay",
-        #     "Transmission Delay",
-        #     "TTL"]
-        # csv_create(rest_packet_file_header, filepath, rest_packet_filename)
-        # for node in satellites.values():
-        #     rows = []
-        #     rest = node.get_all_packets()
-        #     for location, packets in rest.items():
-        #         for packet in packets:
-        #             data = [packet.start_at, packet.source, packet.destination, packet.curr, location,
-        #                     len(packet.result),
-        #                     len(packet.detour_at), packet.detour_at, packet.cross_count, packet.result,
-        #                     sum(packet.queuing_delays) + packet.propagation_delays + packet.transmission_delay,
-        #                     packet.queuing_delays, sum(packet.queuing_delays), packet.propagation_delays,
-        #                     packet.transmission_delay, packet.ttl]
-        #             # print(data)
-        #             rows.append(data)
-        #     csv_write(rows, filepath, rest_packet_filename)
-        # for node in ground_relays.values():
-        #     rows = []
-        #     rest = node.get_all_packets()
-        #     for location, packets in rest.items():
-        #         for packet in packets:
-        #             data = [packet.start_at, packet.source, packet.destination, packet.curr, location,
-        #                     len(packet.result),
-        #                     len(packet.detour_at), packet.detour_at, packet.cross_count, packet.result,
-        #                     sum(packet.queuing_delays) + packet.propagation_delays + packet.transmission_delay,
-        #                     packet.queuing_delays, sum(packet.queuing_delays), packet.propagation_delays,
-        #                     packet.transmission_delay, packet.ttl]
-        #             #                     print(data)
-        #             rows.append(data)
-        #     csv_write(rows, filepath, rest_packet_filename)
+#         """ 잔여 패킷 별도 csv 저장 """
+#         rest_packet_filename = f"limited_Q_with_GSL_{genertation_rate}_rest.csv"
+#         rest_packet_file_header = [
+#         "Time (ms)", "source", "destination", "current", "location", "Path Length", "Detour counts", "Detour log",
+#         "cross counts", "result", "e2e delay", "Queuing delays", "Queuing Delay", "Propagation Delay", "Transmission Delay",
+#         "TTL"]
+#         csv_create(rest_packet_file_header, filepath, rest_packet_filename)
+#         for node in satellites.values():
+#             rows = []
+#             rest = node.get_all_packets()
+#             for location, packets in rest.items():
+#                 for packet in packets:
+#                     data = [packet.start_at, packet.source, packet.destination, packet.curr, location, len(packet.result),
+#                             len(packet.detour_at), packet.detour_at, packet.cross_count, packet.result,
+#                             sum(packet.queuing_delays) + packet.propagation_delays + packet.transmission_delay,
+#                             packet.queuing_delays, sum(packet.queuing_delays), packet.propagation_delays,
+#                             packet.transmission_delay, packet.ttl]
+#                     # print(data)
+#                     rows.append(data)
+#             csv_write(rows, filepath, rest_packet_filename)
+#         for node in ground_relays.values():
+#             rows = []
+#             rest = node.get_all_packets()
+#             for location, packets in rest.items():
+#                 for packet in packets:
+#                     data = [packet.start_at, packet.source, packet.destination, packet.curr, location, len(packet.result),
+#                             len(packet.detour_at), packet.detour_at, packet.cross_count, packet.result,
+#                             sum(packet.queuing_delays) + packet.propagation_delays + packet.transmission_delay,
+#                             packet.queuing_delays, sum(packet.queuing_delays), packet.propagation_delays,
+#                             packet.transmission_delay, packet.ttl]
+# #                     print(data)
+#                     rows.append(data)
+#             csv_write(rows, filepath, rest_packet_filename)
+
 
         print("\n--- Simulation Summary ---")
         print(f"Generated: {generated_count}")
@@ -552,8 +669,6 @@ if __name__ == '__main__':
         print(f"Dropped:   {drop_cnt}")
         print("--------------------------")
         now = datetime.now()
-        memo = "dbpr, data rate rollback (2.5Gbps)"
-        summary_info = [
-            [now.strftime('%Y-%m-%d %H:%M:%S'), total_time, genertation_rate, generated_count, succeeded, fail_cnt,
-             drop_cnt, generated_count - ended, memo]]
+        memo = f"TTL128, {FILTER_MODE}-{cur_rate}"
+        summary_info = [[now.strftime('%Y-%m-%d %H:%M:%S'), total_time, genertation_rate,generated_count, succeeded, fail_cnt, drop_cnt, generated_count-ended, memo]]
         csv_write(summary_info, filepath, "summary.csv")
