@@ -3,6 +3,9 @@ import networkx as nx
 import numpy as np
 from copy import deepcopy
 
+from matplotlib import pyplot as plt
+
+
 class RTPGGraph:
     def __init__(self, N, M, F):
         self.N = N  # Number of orbits
@@ -628,3 +631,61 @@ class RTPGGraph:
     def _invalidate_views(self):
         self._views.clear()
         self._view_epoch += 1
+
+    def visualize_flow_paths(self, flows, split_multi=True, label_splits=True):
+        """
+        여러 flow 경로를 함께 시각화합니다.
+        flows: {'(src,dst)': [pkts, path, detours]} 형태의 딕셔너리
+        """
+        if not flows:
+            print("No flows to visualize.")
+            return
+
+        # visualize와 동일한 그래프 준비 로직
+        if not split_multi:
+            Gd = self.G
+            pos = {
+                nid: (data["position"][0], data["position"][1])
+                for nid, data in Gd.nodes(data=True)
+                if "position" in data and not isinstance(data["position"][0], (list, tuple))
+            }
+            labels = {nid: nid for nid in Gd.nodes()}
+            orig2splits = {nid: [nid] for nid in Gd.nodes()}
+        else:
+            Gd, pos, labels, orig2splits = self._split_positions_for_draw(self.G)
+            if not label_splits:
+                labels = {nid2: orig for orig, splits in orig2splits.items() for nid2 in splits}
+
+        color_map = [self._color_by_type(Gd.nodes[n].get("type")) for n in Gd.nodes()]
+
+        from matplotlib import pyplot as plt
+        plt.figure(figsize=(16, 8))
+        nx.draw(
+            Gd, pos, with_labels=True, labels=labels, node_color=color_map,
+            node_size=100, font_size=4, alpha=0.85
+        )
+
+        # 경로 하이라이트
+        path_colors = ['crimson', 'blue', 'green', 'purple', 'orange', 'brown']
+        color_idx = 0
+        for fkey, (total_pkts, path, detours) in flows.items():
+            hp_nodes = []
+            for nid in path:
+                splits = orig2splits.get(nid)
+                if not splits: continue
+                hp_nodes.append(splits[0])
+
+            if len(hp_nodes) >= 2:
+                path_edges = list(zip(hp_nodes, hp_nodes[1:]))
+                nx.draw_networkx_edges(
+                    Gd, pos,
+                    edgelist=path_edges,
+                    edge_color=path_colors[color_idx % len(path_colors)],
+                    width=2.0
+                )
+                color_idx += 1
+
+        plt.title(f"RTPG Graph with {len(flows)} flows" + (" (split multi-pos)" if split_multi else ""))
+        plt.grid(True)
+        plt.axis("equal")
+        plt.show()
