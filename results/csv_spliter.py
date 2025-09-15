@@ -38,11 +38,11 @@ def filtering_only_fail(file_path, except_status):
 # 사용 예시
 if __name__ == '__main__':
     target = [
-       40,80,120,160,200,240,280,320,360
+       360
     ]
     for index in target:
         # filename = f"seogwon_results_only_ISL_{index}.csv"
         # split_csv_by_rows(filename, chunk_size=500000)
-        filename = f"./tmc data rate rollback/result_{index}.csv"
-        # split_csv_by_rows(filename, chunk_size=500000)
-        filtering_only_fail(filename, 'success')
+        filename = f"./prop ver1.5/result_{index}.csv"
+        split_csv_by_rows(filename, chunk_size=500000)
+        # filtering_only_fail(filename, 'success')

@@ -212,9 +212,10 @@ def prepare_node_routing_metadata(node, mapper, altitude_km):
 
     return node
 
-def load_event_schedule(csv_path: str) -> Dict[int, List[Tuple[int, int, int]]]:
+def load_event_schedule(csv_path: str, t_max_ms: int) -> Dict[int, List[Tuple[int, int, int]]]:
     """
-    이벤트 CSV 전체를 메모리로 로드하여 time -> [(src, dst, count), ...] 딕셔너리로 반환.
+    이벤트 CSV를 메모리로 로드하여 time -> [(src, dst, count), ...] 딕셔너리로 반환.
+    0ms부터 t_max_ms까지만 로드합니다.
     같은 (time, src, dst)가 여러 줄이면 count 합산.
     time은 float/int가 섞여 있어도 int(float(..))로 정규화.
     src == dst 는 무시.
@@ -230,10 +231,15 @@ def load_event_schedule(csv_path: str) -> Dict[int, List[Tuple[int, int, int]]]:
 
         for row in reader:
             t = int(float(row["time"]))
+            if t > t_max_ms:
+                # CSV가 시간순으로 정렬되어 있다고 가정하고 조기 종료
+                break
+
             s = int(row["src_id"])
             d = int(row["dst_id"])
             if s == d:
                 continue
+
             c = int(row["generated_pkt_num"])
             agg[t][(s, d)] += c
 

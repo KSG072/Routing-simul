@@ -48,7 +48,7 @@ def _apply_tick_style(ax, x_minor_div=5, y_minor_div=5,
 def plot_arrival_rate_avg_over_start_at(
     base_dir,                                  # CSV들이 있는 폴더
     rates=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-    filename_tpl="limited_Q_with_GSL_{rate}.csv",
+    filename_tpl="result_{rate}.csv",
     metric="e2e_delay",                        # "e2e_delay" | "drop_rate"
     bin_size=50,                               # start_at 구간 간격(ms)
     start_range=(0, 600),                      # x축 범위(ms)
@@ -918,7 +918,12 @@ def compute_or_load_overall_csv(base_name, indices, directory='.',
 
     # ---- 없으면 계산 (기존 analyze_files_overall 계산 로직 재사용) ----
     required_columns = {'Path Length', 'e2e delay', 'Status', 'Time (ms)'}
-    lo, hi = target_range
+    if target_range is None:
+        # 전체 파일에서 time 범위 자동 결정
+        lo = None
+        hi = None
+    else:
+        lo, hi = target_range
     stats = {
         "index": [], "path_length_avg": [], "path_length_min": [], "path_length_max": [],
         "delay_avg": [], "delay_min": [], "delay_max": [], "drop_prob": [], "generated": [], "success": [],"throughput": []
@@ -938,9 +943,17 @@ def compute_or_load_overall_csv(base_name, indices, directory='.',
 
         # 시간 필터
         df['Time (ms)'] = pd.to_numeric(df['Time (ms)'], errors='coerce')
+        if target_range is None:
+            # time이 0인 시점부터 마지막까지
+            lo = df['Time (ms)'].min()
+            # 마지막 row의 time + e2e delay
+            last_row = df.iloc[-1]
+            last_time = last_row['Time (ms)']
+            last_delay = last_row['e2e delay'] if 'e2e delay' in last_row else 0
+            hi = last_time + last_delay
         df = df[(df['Time (ms)'] >= lo) & (df['Time (ms)'] < hi)]
         if df.empty:
-            print(f"[SKIP] {idx}: Time(ms) in {target_range} 없음.")
+            print(f"[{idx}] no rows in Time(ms) range ({lo}, {hi}). Skipping.")
             continue
 
         success_df = df[df['Status'] == 'success']
@@ -987,21 +1000,24 @@ def compute_or_load_overall_csv(base_name, indices, directory='.',
     return df_out
 
 
-def _plot_overall_from_many(dir_to_df, dir_names,
-                            legend_in_one=True,
-                            reserve_top=0.90):
+def _plot_overall_from_many(
+    dir_to_df, dir_names,
+    legend_in_one=True,
+    reserve_top=0.90,
+    show_minmax=True
+):
     """
     dir_to_df: {dir_name: DataFrame(overall.csv)}
     dir_names: 범례/색상 순서 제어용 리스트 (colors는 이 순서로 배정)
     legend_in_one: True면 라벨을 "DIR (avg)" 형태로 하나의 범례로 처리.
                    False면 '색=디렉토리', '스타일=통계치' 두 개의 범례를 분리(고급).
+    show_minmax: True면 min/max도 함께 표시, False면 avg만 표시
     """
     if not dir_to_df:
         print("No dataframes to plot.")
         return
 
     # 디렉토리별 색 배정
-    # matplotlib 기본 color cycle에서 앞쪽 몇 개 사용
     default_colors = plt.rcParams['axes.prop_cycle'].by_key().get('color', ['C0','C1','C2','C3','C4','C5'])
     colors = {name: default_colors[i % len(default_colors)] for i, name in enumerate(dir_names)}
 
@@ -1019,8 +1035,10 @@ def _plot_overall_from_many(dir_to_df, dir_names,
         if df is None or df.empty:
             continue
         x = df['index'].to_numpy()
-
-        for stat_key, label_suffix in [('path_length_avg','avg'), ('path_length_min','min'), ('path_length_max','max')]:
+        stat_keys = [('path_length_avg','avg')]
+        if show_minmax:
+            stat_keys += [('path_length_min','min'), ('path_length_max','max')]
+        for stat_key, label_suffix in stat_keys:
             if stat_key not in df.columns:
                 continue
             y = df[stat_key].to_numpy()
@@ -1028,7 +1046,7 @@ def _plot_overall_from_many(dir_to_df, dir_names,
             label = f"{name} ({label_suffix})" if legend_in_one else None
             ax1.plot(x, y, color=colors[name], label=label, **style)
 
-    ax1.set_xlabel(r"$N_{p}$")
+    ax1.set_xlabel(r"Packet Arrival Rate (Mbps)$")
     ax1.set_ylabel("Path Length (hops)")
     ax1.set_xticks(sorted(np.unique(np.concatenate([df['index'].to_numpy() for df in dir_to_df.values() if not df.empty]))))
     ax1.grid(True)
@@ -1038,10 +1056,11 @@ def _plot_overall_from_many(dir_to_df, dir_names,
         fig1.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
         ax1.legend(ncol=3, loc='upper center', bbox_to_anchor=(0.5, 0.99), frameon=True)
     else:
-        # 색상용 범례(디렉토리)
         color_handles = [plt.Line2D([0],[0], color=colors[name], lw=2, label=name) for name in dir_names]
-        # 스타일용 범례(통계치)
-        style_handles = [plt.Line2D([0],[0], color='k', lw=2, **STYLES[k], label=k) for k in ['avg','min','max']]
+        style_labels = ['avg']
+        if show_minmax:
+            style_labels += ['min','max']
+        style_handles = [plt.Line2D([0],[0], color='k', lw=2, **STYLES[k], label=k) for k in style_labels]
         fig1.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
         leg1 = fig1.legend(handles=color_handles, loc='upper left', bbox_to_anchor=(0.15, 0.99), ncol=2, frameon=True, title="Directory")
         leg2 = fig1.legend(handles=style_handles, loc='upper right', bbox_to_anchor=(0.85, 0.99), ncol=3, frameon=True, title="Statistic")
@@ -1056,7 +1075,10 @@ def _plot_overall_from_many(dir_to_df, dir_names,
         if df is None or df.empty:
             continue
         x = df['index'].to_numpy()
-        for stat_key, label_suffix in [('delay_avg','avg'), ('delay_min','min'), ('delay_max','max')]:
+        stat_keys = [('delay_avg','avg')]
+        if show_minmax:
+            stat_keys += [('delay_min','min'), ('delay_max','max')]
+        for stat_key, label_suffix in stat_keys:
             if stat_key not in df.columns:
                 continue
             y = df[stat_key].to_numpy()
@@ -1075,7 +1097,10 @@ def _plot_overall_from_many(dir_to_df, dir_names,
         ax2.legend(ncol=3, loc='upper center', bbox_to_anchor=(0.5, 0.99), frameon=True)
     else:
         color_handles = [plt.Line2D([0],[0], color=colors[name], lw=2, label=name) for name in dir_names]
-        style_handles = [plt.Line2D([0],[0], color='k', lw=2, **STYLES[k], label=k) for k in ['avg','min','max']]
+        style_labels = ['avg']
+        if show_minmax:
+            style_labels += ['min','max']
+        style_handles = [plt.Line2D([0],[0], color='k', lw=2, **STYLES[k], label=k) for k in style_labels]
         fig2.tight_layout(rect=[0.0, 0.0, 1.0, reserve_top])
         leg1 = fig2.legend(handles=color_handles, loc='upper left', bbox_to_anchor=(0.15, 0.99), ncol=2, frameon=True, title="Directory")
         leg2 = fig2.legend(handles=style_handles, loc='upper right', bbox_to_anchor=(0.85, 0.99), ncol=3, frameon=True, title="Statistic")
@@ -1122,7 +1147,7 @@ def _plot_overall_from_many(dir_to_df, dir_names,
     ax4.set_ylabel("Throughput (Gbps)")
     ax4.set_xticks(
         sorted(np.unique(np.concatenate([df['index'].to_numpy() for df in dir_to_df.values() if not df.empty]))))
-    ax4.set_ylim(bottom=50, top=200)
+    # ax4.set_ylim(bottom=50, top=200)
     ax4.grid(True)
     _apply_tick_style(ax4, x_minor_div=0, y_minor_div=0)
 
@@ -1139,7 +1164,8 @@ def analyze_files_overall_multi(base_name,
                                 target_range=(200, 600),
                                 cache_name='overall.csv',
                                 force_recompute=False,
-                                legend_in_one=True):
+                                legend_in_one=True,
+                                show_minmax=True):
 
     """
     여러 디렉토리에 대해:
@@ -1166,7 +1192,7 @@ def analyze_files_overall_multi(base_name,
             continue
         dir_to_df[name] = df_overall
 
-    _plot_overall_from_many(dir_to_df, dir_names=dir_names, legend_in_one=legend_in_one)
+    _plot_overall_from_many(dir_to_df, dir_names=dir_names, legend_in_one=legend_in_one, show_minmax=show_minmax)
 
 
 def _is_ground_id(x) -> bool:
@@ -1373,32 +1399,33 @@ if __name__ == '__main__':
 
     # # 비교 대상 디렉토리들
     # directories = [
-    #     r"./tmc ttl128/DROP",
-    #     # r"./tmc isl ttl128",
-    #     r"./tmc ttl128/LENGTH",
+    #     r"./tmc",
+    #     r"./proposed ver1(non-dir edge)",
+    #     r"./prop ver1.5",
     # ]
     # dir_names = [
-    #     "drop",
-    #     # "TMC (no GSL) (TTL=128)",
-    #     "legnth",
+    #     "TMC",
+    #     "prop (ver 1.0)",
+    #     "prop (ver 1.5)",
     # ]
     #
     # analyze_files_overall_multi(
     #     base_name='result_',
-    #     # indices=indices,
-    #     indices=[5,10,15,20],
+    #     indices=indices,
+    #     # indices=[5,10,15,20],
     #     directories=directories,
     #     dir_names=dir_names,
-    #     target_range=(200, 400),
+    #     target_range=(0,1000),
     #     cache_name="overall.csv",   # 디렉토리별 캐시 파일명
     #     force_recompute=False,      # True면 캐시 무시하고 재계산
-    #     legend_in_one=False          # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
+    #     legend_in_one=True,         # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
+    #     show_minmax=False
     # )
-    #
+
     # plot_drop_class_stacked_by_index(
-    #     base_dir='./tmc ttl128/DROP',
-    #     # indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-    #     indices=[5,10,15,20],
+    #     base_dir='./proposed ver1',
+    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     # indices=[5,10,15,20],
     #     filename_tpl='result_{idx}_filtered(success).csv',
     #     # classes 순서/색 바꾸고 싶으면 여기서 지정
     #     classes=('before g','after g','s to s','detouring'),
@@ -1409,45 +1436,45 @@ if __name__ == '__main__':
     #     pct_threshold=0.06,  # 세그먼트가 6% 미만이면 %라벨 생략
     #     save_path=None, show=True
     # )
-    plot_drop_class_stacked_by_index(
-        base_dir='./tmc data rate rollback',
-        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-        # indices=[5, 10, 15, 20],
-        filename_tpl='result_{idx}_filtered(success).csv',
-        # classes 순서/색 바꾸고 싶으면 여기서 지정
-        classes=('before g', 'after g', 's to s', 'detouring'),
-        # classes=('saturated', 'expired', 'link fail'),
-        # colors={'before g':'#4e79a7','after g':'#f28e2b','s to s':'#59a14f','detouring':'#e15759'},
-        annotate_total=True,
-        annotate_pct=True,
-        pct_threshold=0.06,  # 세그먼트가 6% 미만이면 %라벨 생략
-        save_path=None, show=True
-    )
+    # plot_drop_class_stacked_by_index(
+    #     base_dir='./tmc data rate rollback',
+    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     # indices=[5, 10, 15, 20],
+    #     filename_tpl='result_{idx}_filtered(success).csv',
+    #     # classes 순서/색 바꾸고 싶으면 여기서 지정
+    #     classes=('before g', 'after g', 's to s', 'detouring'),
+    #     # classes=('saturated', 'expired', 'link fail'),
+    #     # colors={'before g':'#4e79a7','after g':'#f28e2b','s to s':'#59a14f','detouring':'#e15759'},
+    #     annotate_total=True,
+    #     annotate_pct=True,
+    #     pct_threshold=0.06,  # 세그먼트가 6% 미만이면 %라벨 생략
+    #     save_path=None, show=True
+    # )
 
 
-    # Overall (200~600ms 범위만)
-    analyze_files_overall(
-        base_name='result_',
-        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-        directory='./tmc data rate rollback',
-        target_range=(200, 600)
-    )
-
-    analyze_files_overall_boxplot(
-        base_name='result_',
-        indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-        directory='./tmc data rate rollback',
-        target_range=(200, 600),
-        plot_path_length=True,
-        plot_e2e_delay=True,
-        whis=(5, 95),  # 수염을 5~95 백분위로
-        showfliers=True,  # 아웃라이어 숨김
-        annotate_counts=True  # 각 박스 위에 표본 수 표시
-    )
+    # # Overall (200~600ms 범위만)
+    # analyze_files_overall(
+    #     base_name='result_',
+    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     directory='./tmc data rate rollback',
+    #     target_range=(200, 600)
+    # )
+    #
+    # analyze_files_overall_boxplot(
+    #     base_name='result_',
+    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     directory='./tmc data rate rollback',
+    #     target_range=(200, 600),
+    #     plot_path_length=True,
+    #     plot_e2e_delay=True,
+    #     whis=(5, 95),  # 수염을 5~95 백분위로
+    #     showfliers=True,  # 아웃라이어 숨김
+    #     annotate_counts=True  # 각 박스 위에 표본 수 표시
+    # )
 
     # 생성된 시간에 따른 드롭율, 딜레이
     # plot_arrival_rate_avg_over_start_at('.', indices, start_range=(0, 1200), metric="drop_rate")
-    # plot_arrival_rate_avg_over_start_at('.', indices, start_range=(0, 1200), metric="e2e_delay")
+    plot_arrival_rate_avg_over_start_at('./prop ver1.5', indices, start_range=(0, 1000), metric="e2e_delay")
 
 
     # 전체 QoS 합산

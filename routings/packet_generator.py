@@ -199,10 +199,11 @@ def generate_onoff_event_csvs(
         print(f"[OK] {out_path}  (dt≈{dt_ms:.6f} ms, flows={num_flows}, "
               f"steady_start={steady_state_start}, warmup={warmup_ms} ms)")
 
+
 def grouping_satellite_to_lat_lon_grid(
-    satellites,
-    sats_group_by_grid,
-    lat_max_abs: float = 60.0  # |위도|가 넘어가면 가장자리 bin으로 클램프
+        satellites,
+        sats_group_by_grid,
+        lat_max_abs: float = 60.0  # |위도|가 넘어가면 가장자리 bin으로 클램프
 ):
     """
     sats_group_by_grid 모양(rows×cols)에 자동 적응.
@@ -212,24 +213,22 @@ def grouping_satellite_to_lat_lon_grid(
     rows = len(sats_group_by_grid)
     cols = len(sats_group_by_grid[0])
 
-    # 위도 경계 (rows 등분, 위에서 아래로 큰→작은 순)
-    # 예) rows=8 → 60,45,30,15,0,-15,-30,-45,-60
-    lat_edges = np.linspace(lat_max_abs, -lat_max_abs, rows + 1)
+    # 위도 bin 너비
+    lat_bin_width = 2 * lat_max_abs / rows
 
-    def lat_to_idx(lat):
-        # 클램프 후 등간격 bin 배정
-        if lat >= lat_edges[0]:
+    def lat_to_idx(lat_deg: float) -> int:
+        # [-lat_max_abs, lat_max_abs] 범위 밖의 값은 가장자리 bin으로 처리
+        if lat_deg >= lat_max_abs:
             return 0
-        if lat <= lat_edges[-1]:
+        if lat_deg <= -lat_max_abs:
             return rows - 1
-        # 위에서 아래로 내려가며 포함되는 구간 찾기 (상한 포함, 하한 미포함)
-        # lat_edges[k] >= lat > lat_edges[k+1] → idx=k
-        k = np.searchsorted(-lat_edges, -lat, side="left") - 1
-        if k < 0: k = 0
-        if k >= rows: k = rows - 1
-        return int(k)
 
-    def lon_to_idx(lon_deg_0_360):
+        # 위쪽(북쪽)부터 0번 인덱스. (lat_max_abs - lat)으로 좌표 변환 후 너비로 나눔
+        # 부동소수점 오차로 경계값에서 인덱스가 벗어나는 것을 방지하기 위해 min 사용
+        idx = int((lat_max_abs - lat_deg) / lat_bin_width)
+        return min(idx, rows - 1)
+
+    def lon_to_idx(lon_deg_0_360: float) -> int:
         # 0..360 입력을 -180..180으로 이동 후 균등 bin
         lon = ((lon_deg_0_360 % 360.0) + 180.0) % 360.0 - 180.0  # [-180,180)
         width = 360.0 / cols

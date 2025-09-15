@@ -10,7 +10,7 @@ from random import choices, sample, choice
 import os
 
 from routings.dijkstra import sat_to_sat_forwarding_d
-from routings.proposed import n_light_load_ground_node_in_south, build_path_via_mandatory_ground, check_pair
+from routings.proposed_routingtable import n_light_load_ground_node_in_south, build_path_via_mandatory_ground, check_pair
 
 os.environ["PYCHARM_DISPLAY"] = "none"
 

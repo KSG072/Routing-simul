@@ -116,12 +116,12 @@ def run(csv_files: Iterable[str],
         print(f"[ok] saved: {out_path} (rows={len(df_out)})")
 
 if __name__ == "__main__":
-    # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
-    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\tmc data rate rollback"
-    rates = [360]
+    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\proposed ver1"
+    # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\tmc data rate rollback"
+    rates = [40, 200, 360]
     FILES: List[str] = [fr"{BASE}\result_{rate}.csv" for rate in rates]
 
     # run(FILES, out_base="node counts/node_counts", split_by_rate=False)
     # 또는 rate별 개별 파일
-    # run(FILES, out_base="node counts/0827_uneven/node_counts", split_by_rate=True)
-    run(FILES, out_base="node counts/node_counts", split_by_rate=True)
+    run(FILES, out_base="node counts/prop/node_counts", split_by_rate=True)
+    # run(FILES, out_base="node counts/tmc/node_counts", split_by_rate=True)

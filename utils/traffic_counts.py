@@ -104,11 +104,11 @@ def export_node_counts_events(events_csv,
 
 
 if __name__ == "__main__":
-    # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\uneven traffic"
-    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\tmc ttl128\DROP"
-    rates = (5, 10, 15, 20)
-    # rates = [360]
+    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\proposed ver1"
+    # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\tmc data rate rollback"
+    # rates = (360)
+    rates = [40, 200, 360]
 
     for rate in rates:
-        # export_node_counts(fr"{BASE}\limited_Q_with_GSL_{rate}.csv", f"traffic counts/0827_uneven/traffic_counts_rate_{rate}.csv")
-        export_node_counts(fr"{BASE}\result_{rate}.csv", f"traffic counts/traffic_counts_{rate}.csv")
+        export_node_counts(fr"{BASE}\result_{rate}.csv", f"traffic counts/prop/traffic_counts_{rate}.csv")
+        # export_node_counts(fr"{BASE}\result_{rate}.csv", f"traffic counts/tmc/traffic_counts_{rate}.csv")

@@ -11,7 +11,7 @@ class RTPGGraph:
         self.N = N  # Number of orbits
         self.M = M  # Number of regions in R direction
         self.F = F  # Phasing factor
-        self.G = nx.Graph()
+        self.G = nx.DiGraph()
         self.ground_relays_set = set()
 
     def add_satellite(self, satellite, region):
@@ -155,24 +155,28 @@ class RTPGGraph:
                     if P_min < P_max:
                         if R_min < R_max:
                             if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
-                                self.G.add_edge(relay_id, sat_id, type="gsl")
+                                self.G.add_edge(relay_id, sat_id, type="gsl_up")
+                                self.G.add_edge(sat_id, relay_id, type="gsl_down")
                                 relay.link_to_sat(sat_id)
                                 sat.link_to_ground(relay_id)
                         else:
                             if P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
-                                self.G.add_edge(relay_id, sat_id, type="gsl")
+                                self.G.add_edge(relay_id, sat_id, type="gsl_up")
+                                self.G.add_edge(sat_id, relay_id, type="gsl_down")
                                 relay.link_to_sat(sat_id)
                                 sat.link_to_ground(relay_id)
                     else:
                         if R_min < R_max:
                             if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
-                                self.G.add_edge(relay_id, sat_id, type="gsl")
+                                self.G.add_edge(relay_id, sat_id, type="gsl_up")
+                                self.G.add_edge(sat_id, relay_id, type="gsl_down")
                                 relay.link_to_sat(sat_id)
                                 sat.link_to_ground(relay_id)
                         else:
                             if (P_min <= P_sat or P_sat <= P_max) and (
                                     R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
-                                self.G.add_edge(relay_id, sat_id, type="gsl")
+                                self.G.add_edge(relay_id, sat_id, type="gsl_up")
+                                self.G.add_edge(sat_id, relay_id, type="gsl_down")
                                 relay.link_to_sat(sat_id)
                                 sat.link_to_ground(relay_id)
 
@@ -348,8 +352,26 @@ class RTPGGraph:
         """
         그래프를 초기 상태로 리셋합니다.
         """
-        self.G = nx.Graph()
+        self.G = nx.DiGraph()
         self.ground_relays_set = set()
+
+    def update_rtpg(self, satellites, ground_relays, sat_region_indices, only_isl=False):
+        # 위성 등록
+        for sat, region in zip(satellites, sat_region_indices):
+            sat.connected_grounds = []
+            self.add_satellite(sat, region)
+            sat.region = region
+
+        # Ground Relay 등록
+        for gr in ground_relays:
+            gr.connected_sats = []
+            self.add_relay(gr, (gr.region_asc, gr.region_desc), (gr.search_regions_asc, gr.search_regions_desc))
+
+        self.connect_isl_links()
+        if only_isl:
+            self.connect_ground_links_for_only_isl()
+        else:
+            self.connect_ground_links()
 
     def relay_edge_counts(self):
         """

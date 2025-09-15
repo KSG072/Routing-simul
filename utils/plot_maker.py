@@ -448,7 +448,8 @@ def plot_per_continent_node_metric_like_graph2(
 
 # ========= 메인 =========
 if __name__ == "__main__":
-    CSV_PATH = r"relay counts/relay_counts_before_and_after_rate_360.csv"  # 네 파일 경로로 변경
+    # CSV_PATH = r"relay counts/prop/relay_counts_before_and_after_rate_360.csv"  # 네 파일 경로로 변경
+    CSV_PATH = r"relay counts/tmc/relay_counts_before_and_after_rate_360.csv"  # 네 파일 경로로 변경
     CONTINENTS_ORDER = ["N.america", "S.america", "europe", "asia", "africa", "oceania"]
     df = load_counts(CSV_PATH)
     if df.empty:
@@ -462,7 +463,7 @@ if __name__ == "__main__":
         plot_per_continent_node_metric_like_graph2(df, y_var="avg_queuing_delay", portion_as_pct=True)
 
         # 최소/최대 큐잉지연
-        # plot_per_continent_node_metric_like_graph2(df, y_var="min_queuing_delay")
+        plot_per_continent_node_metric_like_graph2(df, y_var="min_queuing_delay")
         plot_per_continent_node_metric_like_graph2(df, y_var="max_queuing_delay")
 
         # portion을 퍼센트로
