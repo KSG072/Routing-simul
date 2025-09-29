@@ -717,7 +717,7 @@ def analyze_delay_components_bar(base_name, indices, directory='.',
     ax.set_ylabel("Time (ms)")
     ax.set_xticks(x)
     ax.set_xticklabels([str(v) for v in x_labels])
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(bottom=0, top=60)
     ax.margins(y=0)
     ax.grid(True, axis='y', linestyle='--', alpha=0.5)
 
@@ -845,7 +845,7 @@ def analyze_files_overall_boxplot(base_name, indices, directory='.',
         ax.set_xticklabels([str(v) for v in pl_labels])
         ax.margins(y=0)
         ax.grid(True, axis='y', linestyle='--', alpha=0.5)
-        _apply_tick_style(ax, x_minor_div=0, y_minor_div=5)
+        # _apply_tick_style(ax, x_minor_div=0, y_minor_div=5)
 
         # 표본 수 N 주석
         if annotate_counts:
@@ -879,7 +879,7 @@ def analyze_files_overall_boxplot(base_name, indices, directory='.',
         ax.set_xticklabels([str(v) for v in dly_labels])
         ax.margins(y=0)
         ax.grid(True, axis='y', linestyle='--', alpha=0.5)
-        _apply_tick_style(ax, x_minor_div=0, y_minor_div=5)
+        # _apply_tick_style(ax, x_minor_div=0, y_minor_div=5)
 
         if annotate_counts:
             ymax = max([np.nanmax(v) if len(v) else np.nan for v in dly_data])
@@ -1382,48 +1382,59 @@ if __name__ == '__main__':
     # # CDF (200~600ms 범위만)
     # analyze_files_cdf(
     #     base_name='limited_Q_with_GSL_',
-    #     indices=(40, 120, 200, 280, 360),
+    #     indices='./prop ver1.7.2_nosig_avghist',
     #     directory='.',
     #     target_range=(200, 600)
     # )
     #
     # # Delay Components Bar (200~600ms 범위만)
     # analyze_delay_components_bar(
-    #     base_name='limited_Q_with_GSL_',
+    #     base_name='result_',
     #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-    #     directory='.',
+    #     directory='./prop ver1.7.2_nosig_avghist',
     #     agg='mean',
     #     reserve_top=0.84,
-    #     target_range=(200, 600)
+    #     target_range=(0, 1000)
+    # )
+    # analyze_delay_components_bar(
+    #     base_name='result_',
+    #     indices=(240, 280),
+    #     directory='./prop ver1.7.2_nosig_avghist',
+    #     agg='mean',
+    #     reserve_top=0.84,
+    #     target_range=(0, 600)
     # )
 
-    # # 비교 대상 디렉토리들
-    # directories = [
-    #     r"./tmc",
-    #     r"./proposed ver1(non-dir edge)",
-    #     r"./prop ver1.5",
-    # ]
-    # dir_names = [
-    #     "TMC",
-    #     "prop (ver 1.0)",
-    #     "prop (ver 1.5)",
-    # ]
-    #
-    # analyze_files_overall_multi(
-    #     base_name='result_',
-    #     indices=indices,
-    #     # indices=[5,10,15,20],
-    #     directories=directories,
-    #     dir_names=dir_names,
-    #     target_range=(0,1000),
-    #     cache_name="overall.csv",   # 디렉토리별 캐시 파일명
-    #     force_recompute=False,      # True면 캐시 무시하고 재계산
-    #     legend_in_one=True,         # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
-    #     show_minmax=False
-    # )
+    # 비교 대상 디렉토리들
+    directories = [
+        # r"./tmc(latest)",
+        # r"./prop ver1.5_dir",
+        # r"./prop_NCC(detour)",
+        r"./prop_NCC 2_FFR_10seconds",
+        r"./prop_NCC 2_noFFR_10seconds",
+    ]
+    dir_names = [
+        # "TMC",
+        # "hard assumption",
+        "detour",
+        "no detour",
+    ]
+
+    analyze_files_overall_multi(
+        base_name='result_',
+        indices=indices,
+        # indices=[5,10,15,20],
+        directories=directories,
+        dir_names=dir_names,
+        target_range=(0,10000),
+        cache_name="overall.csv",   # 디렉토리별 캐시 파일명
+        force_recompute=False,      # True면 캐시 무시하고 재계산
+        legend_in_one=True,         # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
+        show_minmax=False
+    )
 
     # plot_drop_class_stacked_by_index(
-    #     base_dir='./proposed ver1',
+    #     base_dir='./prop_NCC 2',
     #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
     #     # indices=[5,10,15,20],
     #     filename_tpl='result_{idx}_filtered(success).csv',
@@ -1437,7 +1448,7 @@ if __name__ == '__main__':
     #     save_path=None, show=True
     # )
     # plot_drop_class_stacked_by_index(
-    #     base_dir='./tmc data rate rollback',
+    #     base_dir='./prop ver1.7.2_nosig_avghist',
     #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
     #     # indices=[5, 10, 15, 20],
     #     filename_tpl='result_{idx}_filtered(success).csv',
@@ -1462,19 +1473,19 @@ if __name__ == '__main__':
     #
     # analyze_files_overall_boxplot(
     #     base_name='result_',
-    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-    #     directory='./tmc data rate rollback',
-    #     target_range=(200, 600),
+    #     indices=indices,
+    #     directory='./prop_softassume',
+    #     target_range=(0, 600),
     #     plot_path_length=True,
     #     plot_e2e_delay=True,
     #     whis=(5, 95),  # 수염을 5~95 백분위로
     #     showfliers=True,  # 아웃라이어 숨김
     #     annotate_counts=True  # 각 박스 위에 표본 수 표시
     # )
-
-    # 생성된 시간에 따른 드롭율, 딜레이
-    # plot_arrival_rate_avg_over_start_at('.', indices, start_range=(0, 1200), metric="drop_rate")
-    plot_arrival_rate_avg_over_start_at('./prop ver1.5', indices, start_range=(0, 1000), metric="e2e_delay")
+    #
+    # # 생성된 시간에 따른 드롭율, 딜레이
+    # plot_arrival_rate_avg_over_start_at('./prop_softassume', indices, start_range=(0, 600), metric="drop_rate")
+    # plot_arrival_rate_avg_over_start_at('./prop_softassume', indices, start_range=(0, 600), metric="e2e_delay")
 
 
     # 전체 QoS 합산

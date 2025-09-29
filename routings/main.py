@@ -1,6 +1,10 @@
 import multiprocessing
 from routings.Simulator import Simulator
 
+routing_table_directory_name = 'flow_log(10seconds)'
+algorithm = "proposed(flow)"  # 사용할 라우팅 알고리즘: proposed(table), tmc, proposed(flow)
+directory = r"../results/onlineNCC test"  # 결과를 저장할 디렉토리 경로
+
 def run_simulations_for_chunk(args):
     """
     주어진 rate 리스트(chunk)에 대해 시뮬레이션을 순차적으로 실행하는 워커 함수입니다.
@@ -16,6 +20,7 @@ def run_simulations_for_chunk(args):
             generation_rate=rate,
             algorithm=routing_algorithm,
             filepath=filepath,
+            table_dir=routing_table_directory_name,
             if_isl=False
         )
         simulator.run()
@@ -26,14 +31,14 @@ def run_simulations_for_chunk(args):
 if __name__ == "__main__":
     # 각 프로세스에 할당될 generation rate 리스트
     generation_rates = [
-        [40, 80, 320],
-        [360,120],
-        [240, 200],
-        [160, 280]
+        [40],
+        # [40, 80, 320],
+        # [360, 120],
+        # [240, 200],
+        # [160, 280],
     ]
-    num_processes = 4
-    algorithm = "proposed" # 사용할 라우팅 알고리즘: proposed, tmc
-    directory = r"../results/proposed ver1(non-dir edge)" # 결과를 저장할 디렉토리 경로
+    num_processes = 1
+
     print(f"{num_processes}개의 코어에서 시뮬레이션을 병렬로 실행합니다.")
 
     # 프로세스 풀을 생성하고 각 프로세스에 rate 리스트를 할당하여 실행합니다.

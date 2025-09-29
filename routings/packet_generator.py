@@ -138,6 +138,14 @@ def generate_onoff_event_csvs(
 
     os.makedirs(out_dir, exist_ok=True)
 
+    # --- 플로우별 (src,dst) 미리 뽑기 ---
+    print(f"{num_flows}개의 플로우에 대한 (src, dst) 쌍을 미리 선택합니다...")
+    if use_grid_weighted:
+        flow_pairs = [choose_pair_via_grid() for _ in range(num_flows)]
+    else:
+        flow_pair_indices = rng.choice(len(pairs), size=num_flows, replace=True, p=pair_probs)
+        flow_pairs = [pairs[i] for i in flow_pair_indices]
+
     # --- 시뮬레이션 ---
     from tqdm import tqdm
     for rate_mbps in rates:
@@ -146,17 +154,9 @@ def generate_onoff_event_csvs(
 
         bucket: dict[tuple[int, any, any], int] = {}
 
-        # 플로우별 (src,dst) 미리 뽑기
-        if use_grid_weighted:
-            flow_pairs = [choose_pair_via_grid() for _ in range(num_flows)]
-        else:
-            flow_pair_idx = rng.choice(len(pairs), size=num_flows, replace=True, p=pair_probs)
-
-        for i in tqdm(range(num_flows)):
-            if use_grid_weighted:
-                s_id, d_id = flow_pairs[i]
-            else:
-                s_id, d_id = pairs[flow_pair_idx[i]]
+        # 플로우별 (src,dst)는 루프 밖에서 이미 선택됨
+        for i in tqdm(range(num_flows), desc=f"Rate {rate_mbps} Mbps"):
+            s_id, d_id = flow_pairs[i]
 
             # 초기화
             if steady_state_start:
@@ -230,9 +230,13 @@ def grouping_satellite_to_lat_lon_grid(
 
     def lon_to_idx(lon_deg_0_360: float) -> int:
         # 0..360 입력을 -180..180으로 이동 후 균등 bin
-        lon = ((lon_deg_0_360 % 360.0) + 180.0) % 360.0 - 180.0  # [-180,180)
+        if lon_deg_0_360 < 180:
+            lon = lon_deg_0_360
+        else:
+            lon = lon_deg_0_360 - 360.0
+        # lon = ((lon_deg_0_360 % 360.0) + 180.0) % 360.0 - 180.0  # [-180,180)
         width = 360.0 / cols
-        idx = int((lon + 180.0) // width)
+        idx = int((np.floor(lon) + 180.0) // width)
         # 부동소수 방어
         if idx < 0: idx = 0
         if idx >= cols: idx = cols - 1
@@ -286,7 +290,7 @@ if __name__ == "__main__":
         steady_state_start=True,
         start_on=True,
         warmup_ms=2000,
-        out_dir="../parameters/even traffic",
+        out_dir="../parameters/uneven traffic(latest)",
         sats_group_by_grid=sats_group_by_grid,
-        traffic_map=TRAFFIC_DENSITY_UNIFORM   # 🔥 rows×cols 어떤 크기든 OK
+        traffic_map=TRAFFIC_DENSITY   # 🔥 rows×cols 어떤 크기든 OK
     )

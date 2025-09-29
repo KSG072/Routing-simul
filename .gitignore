@@ -2,7 +2,6 @@
 !/results/csv_grapper.py
 !/results/csv_spliter.py
 !/results/new_analyzer.py
-!/results/analyze_diff
 /parameters/uneven traffic/*
 !/parameters/uneven traffic/traffic_histogram.py
 /utils/node counts/*

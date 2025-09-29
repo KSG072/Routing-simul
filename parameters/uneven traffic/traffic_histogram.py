@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # 1) CSV 로드
-rates = [40,80,160]
+rates = [360]
 for rate in rates:
     path = f"events_{rate}Mbps.csv"  # 파일 경로
     df = pd.read_csv(path)

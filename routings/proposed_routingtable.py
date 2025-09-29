@@ -5,7 +5,7 @@
 import csv, json
 from collections import defaultdict
 from math import floor
-
+import sys
 from utils.plot_maker import load_heatmap
 from numpy import pi
 
@@ -242,30 +242,42 @@ class RoutingTableGenerator:
         # 시각화 함수 호출
         load_heatmap(gen_rate=gen_rate, t=t, N=N, M=M, data=data)
 
-def import_routing_tables_from_csv_json(rate, time):
-    """
-    저장된 라우팅 테이블 csv를 불러와 {node_id: {(src, dst): v}} 형태로 반환합니다.
-    """
-    filepath = f'./routing table(non-dir edge)/routing_tables_{rate}-{time}.csv'
-    node_tables = {}
-    with open(filepath, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            node_id = row["node_id"]
-            table_str = row["table"]
-            table_dict = json.loads(table_str)
-            # 키를 튜플로 복원
-            table = {}
-            for k, v in table_dict.items():
-                src, dst = k.split(",")
-                # src, dst가 int라면 int로 변환 (필요시)
-                try:
-                    src = int(src)
-                    dst = int(dst)
-                except ValueError:
-                    pass
-                table[(src, dst)] = v
-            node_tables[node_id] = table
+def import_routing_tables_from_csv_json(directory, rate, time):
+    # 시스템이 허용하는 최대 크기로 CSV 필드 크기 제한을 늘립니다.
+    # OverflowError를 방지하기 위해 try-except 블록을 사용합니다.
+    max_int = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(max_int)
+            break
+        except OverflowError:
+            max_int = int(max_int / 10)
+
+    filepath = f"./{directory}/routing_tables_{rate}-{time}.csv"
+    print(f"Importing routing tables from {filepath} ...")
+    node_tables = defaultdict(dict)
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                node_id = row["node_id"]
+                table_str = row["table"]
+                table_dict = json.loads(table_str)
+                # 키를 튜플로 복원
+                table = {}
+                for k, v in table_dict.items():
+                    src, dst = k.split(",")
+                    # src, dst가 int라면 int로 변환 (필요시)
+                    try:
+                        src = int(src)
+                        dst = int(dst)
+                    except ValueError:
+                        pass
+                    table[(src, dst)] = v
+                node_tables[node_id] = table
+    except FileNotFoundError:
+        print(f"Error: Routing table file not found at {filepath}")
+        return None
     return node_tables
 
 # ---------------------------------------------------------
@@ -282,7 +294,9 @@ if __name__ == "__main__":
     from utils.loader import load_ground_relays_from_csv, load_event_schedule, prepare_node_routing_metadata
     from utils.RTPGGraph import RTPGGraph
 
-    GENERATION_RATE_LIST_TEST = [360]
+    # GENERATION_RATE_LIST_TEST = [360, 40, 240]  # Mbps
+    # GENERATION_RATE_LIST_TEST = [320, 80, 200]  # Mbps
+    GENERATION_RATE_LIST_TEST = [280, 120, 160]  # Mbps
     update_duration = 600
     T_ms = 95.4 * 60 * 1000  # 궤도 주기 (밀리초)
     omega_s = 2 * pi / T_ms  # delta phase (deg)
@@ -308,7 +322,7 @@ if __name__ == "__main__":
         future_satellites = future_constellation.get_all_satellites()
 
         relay_csv_path = '../parameters/Ground_Relay_Coordinates.csv'
-        traffic_schedule_path = f'../parameters/uneven traffic (3000flows)/events_{generation_rate}Mbps.csv'
+        traffic_schedule_path = f'../parameters/uneven traffic(latest)/events_{generation_rate}Mbps.csv'
         # table_csv_path = f'./routing table/routing_tables_{generation_rate}Mbps.csv'
         ground_relays = load_ground_relays_from_csv(relay_csv_path, N * M)
         print(f"Loading traffic schedule from {traffic_schedule_path} ...")
@@ -391,7 +405,7 @@ if __name__ == "__main__":
             # 추가된 시각화 함수 호출
             # rtpg.visualize_flow_paths(flows)
             # 결과 시각화
-            gen.visualize_load(satellites, gen_rate=generation_rate, t=total_time)
+            # gen.visualize_load(satellites, gen_rate=generation_rate, t=total_time)
             # 라우팅 테이블 csv로 저장
-            table_csv_path = f'./routing table(non-dir edge)/routing_tables_{generation_rate}-{start_time}.csv'
+            table_csv_path = f'./routing table(hard_assumption, nodir)/routing_tables_{generation_rate}-{start_time}.csv'
             gen.export_routing_tables_to_csv_json(table_csv_path)
