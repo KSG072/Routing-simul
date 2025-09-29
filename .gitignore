@@ -2,8 +2,11 @@
 !/results/csv_grapper.py
 !/results/csv_spliter.py
 !/results/new_analyzer.py
-/parameters/uneven traffic/*
+/parameters/*
 !/parameters/uneven traffic/traffic_histogram.py
+!/parameters/__init__.py
+!/parameters/PARAMS.py
+!/parameters/Ground_Relay_Coordinates.csv
 /utils/node counts/*
 /utils/relay counts/*
 /utils/traffic counts/*
