@@ -177,7 +177,7 @@ def check_cross_counts(nodes: deque):
     return cross_count
 
 class Simulator:
-    def __init__(self, algorithm, generation_rate, filepath, table_dir, tqdm_position=None, if_isl=False):
+    def __init__(self, algorithm, generation_rate, filepath, table_dir, simulation_time, tqdm_position=None, if_isl=False):
         """시뮬레이션 실행에 필요한 모든 변수를 초기화합니다."""
         self.algorithm = algorithm
         # self.disconnect_pair = []
@@ -204,7 +204,7 @@ class Simulator:
         # 시뮬레이션 파라미터 설정
         self.t = 0
         self.dt = TIME_SLOT
-        self.total_time = TOTAL_TIME
+        self.total_time = simulation_time
         self.steps = int(self.total_time / self.dt)
         t_ms = 95.4 * 60 * 1000  # 궤도 주기 (밀리초)
         self.omega_s = 2 * np.pi / t_ms  # delta phase (deg)
@@ -475,21 +475,21 @@ class Simulator:
                             data_rate = SGL_KA_DOWNLINK
                             packet.last_direction = s.is_ascending()
                         else: # 링크 끊김
-                            # candidates = [node_id for node_id in isl_candidates if direction in self.satellites[node_id].gsl_down_buffers.keys()]
-                            # if candidates:
-                            #     new_next_hop = min(candidates, key=lambda node_id: self.satellites[node_id].gsl_down_buffers[direction].size)
-                            #     if (fkey, direction) not in s.fixed:
-                            #         self.flow_controller.fix_flow(fkey, s.node_id, new_next_hop)
-                            #         s.fixed.add((fkey, direction))
-                            #         print(f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {s.node_id}, try: {direction}, detour to: {new_next_hop}")
-                            #     packet.path.insert(packet.curr_idx+1, new_next_hop)
-                            #     packet.detour_at.append(packet.curr)
-                            #     direction = isl_candidates.index(new_next_hop)
-                            #     buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
-                            #     data_rate = ISL_RATE_LASER
-                            # else:
-                            failed.append(packet)
-                            continue
+                            candidates = [node_id for node_id in isl_candidates if direction in self.satellites[node_id].gsl_down_buffers.keys()]
+                            if candidates:
+                                new_next_hop = min(candidates, key=lambda node_id: self.satellites[node_id].gsl_down_buffers[direction].size)
+                                if (fkey, direction) not in s.fixed:
+                                    self.flow_controller.fix_flow(fkey, s.node_id, new_next_hop)
+                                    s.fixed.add((fkey, direction))
+                                    print(f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {s.node_id}, try: {direction}, detour to: {new_next_hop}")
+                                packet.path.insert(packet.curr_idx+1, new_next_hop)
+                                packet.detour_at.append(packet.curr)
+                                direction = isl_candidates.index(new_next_hop)
+                                buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
+                                data_rate = ISL_RATE_LASER
+                            else:
+                                failed.append(packet)
+                                continue
 
                     packet.queuing_delays.append((buffer_queue.size * PACKET_SIZE_BITS) / (TAU * data_rate))
 
@@ -513,21 +513,21 @@ class Simulator:
                 if direction in g.gsl_up_buffers.keys():
                     buffer_queue = g.gsl_up_buffers[direction]
                 else:
-                    # dir_obj = self.satellites[direction]
-                    # adjacency_node_id = [dir_obj.isl_up, dir_obj.isl_down, dir_obj.isl_left, dir_obj.isl_right]
-                    # candidates = [node_id for node_id in adjacency_node_id if node_id in g.gsl_up_buffers.keys()]
-                    # if candidates:
-                    #     next_hop = min(candidates, key=lambda node_id: g.gsl_up_buffers[node_id].size)
-                    #     if (fkey, direction) not in g.fixed:
-                    #         self.flow_controller.fix_flow(fkey, g.node_id, next_hop)
-                    #         g.fixed.add((fkey, direction))
-                    #     packet.path.insert(packet.curr_idx + 1, next_hop)
-                    #     packet.detour_at.append(packet.curr)
-                    #     direction = next_hop
-                    #     buffer_queue = g.gsl_up_buffers[direction]
-                    # else:
-                    failed.append(packet)
-                    continue
+                    dir_obj = self.satellites[direction]
+                    adjacency_node_id = [dir_obj.isl_up, dir_obj.isl_down, dir_obj.isl_left, dir_obj.isl_right]
+                    candidates = [node_id for node_id in adjacency_node_id if node_id in g.gsl_up_buffers.keys()]
+                    if candidates:
+                        next_hop = min(candidates, key=lambda node_id: g.gsl_up_buffers[node_id].size)
+                        if (fkey, direction) not in g.fixed:
+                            self.flow_controller.fix_flow(fkey, g.node_id, next_hop)
+                            g.fixed.add((fkey, direction))
+                        packet.path.insert(packet.curr_idx + 1, next_hop)
+                        packet.detour_at.append(packet.curr)
+                        direction = next_hop
+                        buffer_queue = g.gsl_up_buffers[direction]
+                    else:
+                        failed.append(packet)
+                        continue
 
                 packet.queuing_delays.append((buffer_queue.size * PACKET_SIZE_BITS) / (TAU * SGL_KA_UPLINK))
                 if packet.last_direction != self.satellites[direction].is_ascending():  # cross count
