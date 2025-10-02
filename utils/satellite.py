@@ -187,15 +187,10 @@ class Satellite:
         #     print(dropped)
         return dropped
 
-    def trash_packets(self):
-        disconnected = [ground_id for ground_id in self.gsl_down_buffers.keys() if ground_id not in self.connected_grounds]
-        if self.disconnected:
-            disconnected += self.disconnected
+    def trash_packets(self, ground_id):
         trash = []
-        for direction in disconnected:
-            disconnected_buffer = self.gsl_down_buffers.pop(direction)
-            trash += list(disconnected_buffer.buffer)
-        self.disconnected = []
+        disconnected_buffer = self.gsl_down_buffers.pop(ground_id)
+        trash += list(disconnected_buffer.buffer)
 
         return trash
 

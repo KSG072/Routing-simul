@@ -1387,37 +1387,34 @@ if __name__ == '__main__':
     #     target_range=(200, 600)
     # )
     #
-    # # Delay Components Bar (200~600ms 범위만)
+    # Delay Components Bar (200~600ms 범위만)
     # analyze_delay_components_bar(
     #     base_name='result_',
     #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
-    #     directory='./prop ver1.7.2_nosig_avghist',
+    #     directory='./prop(251001)',
     #     agg='mean',
     #     reserve_top=0.84,
     #     target_range=(0, 1000)
     # )
     # analyze_delay_components_bar(
     #     base_name='result_',
-    #     indices=(240, 280),
-    #     directory='./prop ver1.7.2_nosig_avghist',
+    #     indices=(40, 80, 120, 160, 200, 240, 280, 320, 360),
+    #     directory='./tmc(latest)',
     #     agg='mean',
     #     reserve_top=0.84,
-    #     target_range=(0, 600)
+    #     target_range=(0, 1000)
     # )
 
     # 비교 대상 디렉토리들
     directories = [
-        # r"./tmc(latest)",
-        # r"./prop ver1.5_dir",
-        # r"./prop_NCC(detour)",
-        r"./prop_NCC 2_FFR_10seconds",
-        r"./prop_NCC 2_noFFR_10seconds",
+        r"./dijkstra(no detour)",
+        r"./tmc(latest)",
+        r"./prop(251001)",
     ]
     dir_names = [
-        # "TMC",
-        # "hard assumption",
-        "detour",
-        "no detour",
+        "dijkstra",
+        "TMC",
+        "prop",
     ]
 
     analyze_files_overall_multi(
@@ -1426,7 +1423,7 @@ if __name__ == '__main__':
         # indices=[5,10,15,20],
         directories=directories,
         dir_names=dir_names,
-        target_range=(0,10000),
+        target_range=(0,1000),
         cache_name="overall.csv",   # 디렉토리별 캐시 파일명
         force_recompute=False,      # True면 캐시 무시하고 재계산
         legend_in_one=True,         # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리

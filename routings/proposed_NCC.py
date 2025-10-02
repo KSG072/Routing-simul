@@ -1,22 +1,13 @@
 import math
-from collections import defaultdict
 # routings/proposed.py
 # ---------------------------------------------------------
 # "트래픽 맵 재가중 → 다익스트라" 기반 라우팅 테이블 생성기 (간단 구현)
 # ---------------------------------------------------------
 import csv, json
 from collections import defaultdict
-from math import floor
-
-from mkl import peak_mem_usage
-from tqdm import tqdm
-
-from utils.RMSE import compute_rmse_between_totals_and_real_totals
 from utils.plot_maker import load_heatmap
-from numpy import pi
 from numpy.linalg import norm
 from parameters.PARAMS import C, PACKET_SIZE_BITS
-import os
 import pickle
 
 
@@ -337,35 +328,36 @@ class FlowController:
         # (5) !!! 기존 기여 복구(평가만 했으니 원상 복구)
         self._add_flow_contribution((src, dst))
 
-        # 영향을 받는 엣지 집합: 차단엣지 ∪ old_path ∪ new_path
+        # --- SysCost: 과부하 개수만 ---
         old_set = set(self._path_edges(old_path))
         new_set = set(self._path_edges(new_path))
         affected = set(overloaded_edges) | old_set | new_set
 
-        # 후보 적용 '후' 과부하 엣지 개수
         over_cnt_after = 0
         for (u, v) in affected:
             load = self.edge_loads.get((u, v), 0.0)
-            if (u, v) in old_set:
-                load -= float(demand)
-            if (u, v) in new_set:
-                load += float(demand)
-            if load > self._cap_of_edge(u, v):
+            if (u, v) in old_set: load -= float(demand)
+            if (u, v) in new_set: load += float(demand)
+            # 정수/비정수 규칙으로 cap 판정
+            u_is_sat, v_is_sat = isinstance(u, int), isinstance(v, int)
+            if u_is_sat and v_is_sat:
+                cap = float(self.isl_capacity)
+            elif u_is_sat and not v_is_sat:
+                cap = float(self.gsl_down_capacity)
+            elif (not u_is_sat) and v_is_sat:
+                cap = float(self.gsl_up_capacity)
+            else:
+                cap = 0.0
+            if load > cap:
                 over_cnt_after += 1
 
-        # detour_penalty: 신규 0, 그 외 (1 + detours)
-        detour_penalty = 0 if (fkey in self.new_flow) else (1 + int(detours))
+        # --- DelayCost: 홉 당 평균 지연 변화량 ---
+        delta_delay = new_score - old_score  # ms (음수 허용)
+        delta_hops_abs = abs(len(new_path) - len(old_path))  # 절댓값
+        delay_cost_avg = (delta_delay / delta_hops_abs) if delta_hops_abs > 0 else delta_delay
 
-        # base = 현재 시점 모든 flow의 detour_penalty 최대값 + 1  (파라미터 불필요)
-        max_pen = 0
-        for gkey, (_, _, g_detours) in self.flows.items():
-            pen = 0 if (gkey in self.new_flow) else (1 + int(g_detours))
-            if pen > max_pen:
-                max_pen = pen
-        base = (max_pen + 1) or 1
-
-        system_cost = base * over_cnt_after + detour_penalty
-        delay_cost = new_score - old_score
+        system_cost = over_cnt_after
+        delay_cost = delay_cost_avg
 
         return new_path, delay_cost, system_cost
 
@@ -463,25 +455,29 @@ class FlowController:
         base = list(old_path)
 
         # 2) cur_id 위치 찾기
-        idx_s = base.index(cur_id)
+        if cur_id in base:
+            idx_s = base.index(cur_id)
 
-        # 3) src→s_id 구간에서 next_hop이 이미 존재하면, 해당 지점~s_id 직전 삭제
-        #    (루프/중복 제거, s_id는 남겨둠)
-        if new_next_hop in base:
-            k = base.index(new_next_hop)  # [0, idx_s) 범위에서 탐색
-            if k < idx_s:
-                del base[k + 1:idx_s + 1]
-            else:  # k > idx_s
-                del base[idx_s + 1:k]
+            # 3) src→s_id 구간에서 next_hop이 이미 존재하면, 해당 지점~s_id 직전 삭제
+            #    (루프/중복 제거, s_id는 남겨둠)
+            if new_next_hop in base:
+                k = base.index(new_next_hop)  # [0, idx_s) 범위에서 탐색
+                if k < idx_s:
+                    del base[k + 1:idx_s + 1]
+                else:  # k > idx_s
+                    del base[idx_s + 1:k]
+            else:
+                # 4) s_id 다음에 next_hop 삽입 (이미 그 다음이면 생략)
+                base.insert(idx_s + 1, new_next_hop)
+
+            # === 실제 반영 ===
+            self._remove_flow_contribution(fkey)
+            self.flows[fkey][1] = base
+            self._add_flow_contribution(fkey)
+            self._log_path(fkey, base)
         else:
-            # 4) s_id 다음에 next_hop 삽입 (이미 그 다음이면 생략)
-            base.insert(idx_s + 1, new_next_hop)
-
-        # === 실제 반영 ===
-        self._remove_flow_contribution(fkey)
-        self.flows[fkey][1] = base
-        self._add_flow_contribution(fkey)
-        self._log_path(fkey, base)
+            print(f"{cur_id} is already not in current path")
+            print(f"current path: {base}")
 
     # -------- 결과 꺼내기 (필요 시) --------
     def get_flows(self):

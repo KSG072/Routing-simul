@@ -4,7 +4,7 @@ from routings.Simulator import Simulator
 
 # --- 설정값 ---
 # 시뮬레이션 시간 대신 고정할 generation rate (Mbps)
-GENERATION_RATE = 100
+GENERATION_RATE = 200
 routing_table_directory_name = 'flow_log(10seconds)'
 algorithm = "tmc"  # 사용할 라우팅 알고리즘: proposed(table), tmc, proposed(flow)
 directory = r"../results/tmc_time_sweep"  # 결과를 저장할 디렉토리 경로
@@ -26,7 +26,6 @@ def run_simulations_for_time_chunk(args):
             filepath=filepath,
             table_dir=routing_table_directory_name,
             simulation_time=sim_time,
-            if_isl=False
         )
         simulator.run()
         print(f"프로세스 {process_id} - 시뮬레이션 종료: simulation_time = {sim_time} ms")
@@ -37,10 +36,10 @@ if __name__ == "__main__":
     # 각 프로세스에 할당될 시뮬레이션 시간(ms) 리스트
     # TOTAL_TIME 대신 여기에 직접 값을 입력합니다.
     simulation_times = [
-        [10000],  # 10초
-        [20000],  # 20초
-        [30000],  # 30초
-        [60000],  # 60초
+        [1000, 8000],  # 10초
+        [2000, 7000],  # 20초
+        [3000, 6000, 10000],  # 30초
+        [4000, 5000, 9000],  # 60초
     ]
     # 사용할 프로세스 수 (simulation_times 리스트의 길이와 맞추는 것이 일반적)
     num_processes = len(simulation_times)

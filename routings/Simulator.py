@@ -11,7 +11,7 @@ from numpy.linalg import norm
 from tqdm import tqdm
 from random import choices, sample
 import os
-from flow_recorder import FlowRecorder
+from routings.flow_recorder import FlowRecorder
 
 from routings.dijkstra import sat_to_sat_forwarding_d
 from routings.proposed_NCC import FlowController
@@ -177,7 +177,7 @@ def check_cross_counts(nodes: deque):
     return cross_count
 
 class Simulator:
-    def __init__(self, algorithm, generation_rate, filepath, table_dir, simulation_time, tqdm_position=None, if_isl=False):
+    def __init__(self, algorithm, generation_rate, filepath, table_dir, simulation_time, tqdm_position=None):
         """시뮬레이션 실행에 필요한 모든 변수를 초기화합니다."""
         self.algorithm = algorithm
         # self.disconnect_pair = []
@@ -185,10 +185,9 @@ class Simulator:
         self.disconnect_cache = set()
         self.packet_generation_mode = True
         self.generation_rate = generation_rate
-        self.if_isl = if_isl
         self.filepath = filepath
         self.tqdm_position = tqdm_position
-        self.filename = f"result_{self.generation_rate}.csv"
+        self.filename = f"result_{self.generation_rate}_{simulation_time}.csv"
         self.table_dir = table_dir
 
         # CSV 헤더 및 파일 생성
@@ -227,8 +226,8 @@ class Simulator:
 
     def _initialize_components(self):
         """위성, 지상국, 라우팅 테이블 등 시뮬레이션 구성요소를 설정합니다."""
-        traffic_schedule_path = f'../parameters/uneven traffic(latest)/events_{self.generation_rate}Mbps.csv'
-        relay_csv_path = '../parameters/Ground_Relay_Coordinates.csv'
+        traffic_schedule_path = f'./parameters/uneven traffic(latest)/events_{self.generation_rate}Mbps.csv'
+        relay_csv_path = './parameters/Ground_Relay_Coordinates.csv'
 
         self.mapper = RTPGMapper(N, M, F, inclination_deg)
 
@@ -247,16 +246,11 @@ class Simulator:
         self.rtpg.update_rtpg(self.satellites.values(), self.ground_relays.values(), sat_region_indices)
         self.rtpg.integrity_check()
 
-        if self.if_isl:
-            self.rtpg_isl = RTPGGraph(N=N, M=M, F=F)
-            self.rtpg.update_rtpg(self.satellites.values(), self.ground_relays.values(), sat_region_indices, only_isl=True)
-            self.rtpg_isl.integrity_check()
-
         if self.algorithm == 'proposed(table)':
             self.table = RoutingTable(self.table_dir)
             self.table.load_routing_table(self.generation_rate, 0)
             self.flow_controller = None
-        elif self.algorithm == 'proposed(flow)':
+        elif self.algorithm == 'proposed(flow)' or self.algorithm == 'dijkstra':
             # self.flow = RoutingSchedule(self.table_dir, self.generation_rate)
             self.table = None
             from math import floor
@@ -276,9 +270,7 @@ class Simulator:
             sat_region_indices = self.mapper.batch_map(self.satellites.values())
             self.rtpg.reset_graph()
             self.rtpg.update_rtpg(self.satellites.values(), self.ground_relays.values(), sat_region_indices)
-            if self.if_isl:
-                self.rtpg_isl.reset_graph()
-                self.rtpg.update_rtpg(self.satellites.values(), self.ground_relays.values(), sat_region_indices, only_isl=True)
+
             for satellite in self.satellites.values():
                 if satellite.has_packets():
                     self.failed += satellite.trash_packets()
@@ -286,8 +278,10 @@ class Simulator:
                 if gr.has_packets():
                     self.failed += gr.trash_packets()
 
-            if self.algorithm == 'proposed':
-                self.table.load_routing_table(self.generation_rate, self.t)
+            # if self.algorithm == 'proposed':
+            #     self.table.load_routing_table(self.generation_rate, self.t)
+        if self.algorithm == 'proposed(flow)':
+            self.flow_controller.time = self.t
 
         # if self.disconnect_occur:
         #     while self.disconnect_pair:
@@ -302,12 +296,13 @@ class Simulator:
             for packet_data in generated_packets:
                 (src, dst, num_of_packets) = packet_data
 
-                if self.algorithm == 'proposed(flow)':
+                if self.algorithm == 'proposed(flow)' or self.algorithm == 'dijkstra':
                     fkey = (src, dst)
 
                     if self.flow_recorder.is_new_flow(fkey): #새로운 flow이면 flow_controller에서 경로를 추가하여 계산함
                         self.flow_recorder.create_flow(fkey)
-                        self.flow_controller.build_flows(src, dst, num_of_packets)
+                        demand = 0 if self.algorithm == 'dijkstra' else self.generation_rate
+                        self.flow_controller.build_flows(src, dst, demand)
                         self.flow_controller.build_load_from_totals()
                         updated_flows = self.flow_controller.solve(max_iter=2000) | {(src, dst)}
                         self.flow_controller.hold_flows(self.t, updated_flows)
@@ -322,13 +317,8 @@ class Simulator:
                     if self.flow_recorder.is_new_flow(fkey):
                         self.flow_recorder.create_flow(fkey)
                     self.flow_recorder.record_flow_on((src,dst), self.t, num_of_packets)
+                    paths = get_route_sat_to_sat(self.rtpg, src, dst, n=num_of_packets) # 다익스트라
 
-                    paths = get_route_sat_to_sat(self.rtpg, src, dst, n=num_of_packets)
-
-                if self.if_isl:
-                    isl_path, isl_length = get_route_sat_to_sat(self.rtpg_isl, src, dst, n=1)[0]
-                    expected_delay = delay_estimation(paths[0][0], self.satellites, self.ground_relays)
-                    expected_isl_delay = delay_estimation(isl_path, self.satellites, self.ground_relays)
                 self.generated_count += num_of_packets
 
                 for path in paths:
@@ -338,10 +328,6 @@ class Simulator:
                     calculate_hop_distance(new_packet, self.satellites)
                     self.satellites[src].storage.append(new_packet)
                     new_packet.last_direction = self.satellites[src].is_ascending()
-                    if self.if_isl:
-                        new_packet.expected_isl_delay = expected_isl_delay
-                        new_packet.expected_isl_length = isl_length
-                        new_packet.expected_delay = expected_delay
 
             self.flow_recorder.record_flow_end(self.t)
 
@@ -386,6 +372,8 @@ class Simulator:
             return self.proposed_routing_table()
         elif self.algorithm == 'proposed(flow)':
             return self.proposed_routing_flow()
+        elif self.algorithm == 'dijkstra':
+            return self.dijstra_routing()
         elif self.algorithm == 'tmc':
             return self.tmc_routing()
         else:
@@ -468,28 +456,42 @@ class Simulator:
                         direction = isl_candidates.index(next_hop)
                         buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
                         data_rate = ISL_RATE_LASER
-                    else: # 지상
+                    else:  # 지상
                         direction = next_hop
                         if direction in s.gsl_down_buffers.keys():
                             buffer_queue = s.gsl_down_buffers[direction]
                             data_rate = SGL_KA_DOWNLINK
                             packet.last_direction = s.is_ascending()
-                        else: # 링크 끊김
-                            candidates = [node_id for node_id in isl_candidates if direction in self.satellites[node_id].gsl_down_buffers.keys()]
-                            if candidates:
-                                new_next_hop = min(candidates, key=lambda node_id: self.satellites[node_id].gsl_down_buffers[direction].size)
-                                if (fkey, direction) not in s.fixed:
-                                    self.flow_controller.fix_flow(fkey, s.node_id, new_next_hop)
-                                    s.fixed.add((fkey, direction))
-                                    print(f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {s.node_id}, try: {direction}, detour to: {new_next_hop}")
-                                packet.path.insert(packet.curr_idx+1, new_next_hop)
+                        else:  # 링크 끊김
+                            if fkey in s.fixed.keys():
+                                new_next_hop = s.fixed[fkey]
+                                packet.path.insert(packet.curr_idx + 1, new_next_hop)
                                 packet.detour_at.append(packet.curr)
                                 direction = isl_candidates.index(new_next_hop)
-                                buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
+                                buffer_queue = \
+                                [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
                                 data_rate = ISL_RATE_LASER
                             else:
-                                failed.append(packet)
-                                continue
+                                candidates = [node_id for node_id in isl_candidates if
+                                              direction in self.satellites[node_id].gsl_down_buffers.keys()]
+                                if candidates:
+                                    new_next_hop = min(candidates,
+                                                       key=lambda node_id: self.satellites[node_id].gsl_down_buffers[
+                                                           direction].size)
+                                    self.flow_controller.fix_flow(fkey, s.node, new_next_hop)
+                                    s.fixed[fkey] = new_next_hop
+                                    print(
+                                        f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {s.node_id}, try: {direction}, detour to: {new_next_hop}")
+                                    packet.path.insert(packet.curr_idx + 1, new_next_hop)
+                                    packet.detour_at.append(packet.curr)
+                                    direction = isl_candidates.index(new_next_hop)
+                                    buffer_queue = \
+                                    [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][
+                                        direction]
+                                    data_rate = ISL_RATE_LASER
+                                else:
+                                    failed.append(packet)
+                                    continue
 
                     packet.queuing_delays.append((buffer_queue.size * PACKET_SIZE_BITS) / (TAU * data_rate))
 
@@ -513,21 +515,136 @@ class Simulator:
                 if direction in g.gsl_up_buffers.keys():
                     buffer_queue = g.gsl_up_buffers[direction]
                 else:
-                    dir_obj = self.satellites[direction]
-                    adjacency_node_id = [dir_obj.isl_up, dir_obj.isl_down, dir_obj.isl_left, dir_obj.isl_right]
-                    candidates = [node_id for node_id in adjacency_node_id if node_id in g.gsl_up_buffers.keys()]
-                    if candidates:
-                        next_hop = min(candidates, key=lambda node_id: g.gsl_up_buffers[node_id].size)
-                        if (fkey, direction) not in g.fixed:
-                            self.flow_controller.fix_flow(fkey, g.node_id, next_hop)
-                            g.fixed.add((fkey, direction))
+                    if fkey in g.fixed.keys():
+                        next_hop = g.fixed[fkey]
                         packet.path.insert(packet.curr_idx + 1, next_hop)
                         packet.detour_at.append(packet.curr)
                         direction = next_hop
                         buffer_queue = g.gsl_up_buffers[direction]
                     else:
+                        dir_obj = self.satellites[direction]
+                        adjacency_node_id = [dir_obj.isl_up, dir_obj.isl_down, dir_obj.isl_left, dir_obj.isl_right]
+                        candidates = [node_id for node_id in adjacency_node_id if node_id in g.gsl_up_buffers.keys()]
+                        if candidates:
+                            next_hop = min(candidates, key=lambda node_id: g.gsl_up_buffers[node_id].size)
+                            self.flow_controller.fix_flow(fkey, g.node_id, next_hop)
+                            g.fixed[fkey] = next_hop
+                            packet.path.insert(packet.curr_idx + 1, next_hop)
+                            packet.detour_at.append(packet.curr)
+                            direction = next_hop
+                            buffer_queue = g.gsl_up_buffers[direction]
+                        else:
+                            failed.append(packet)
+                            continue
+
+                packet.queuing_delays.append((buffer_queue.size * PACKET_SIZE_BITS) / (TAU * SGL_KA_UPLINK))
+                if packet.last_direction != self.satellites[direction].is_ascending():  # cross count
+                    packet.cross_count += 1
+
+                if packet.ttl <= 0:
+                    failed.append(packet)
+                else:
+                    packet.was_on_ground = True
+                    g.enqueue_packet(direction, packet)
+                    packet.curr_idx += 1
+
+        return success, failed
+
+    def dijstra_routing(self):
+        # 라우팅 페이즈 구현
+        success = []
+        failed = []
+        for s in self.satellites.values():
+            while s.storage:
+                packet = s.storage.popleft()
+                if s.node_id == packet.destination:  # 도착, success
+                    packet.end(self.t, 'success', s.node_id, s.latitude_deg, s.longitude_deg)
+                    success.append(packet)
+                    self.succeeded += 1
+                else:
+                    fkey = (packet.source, packet.destination)
+                    next_hop = packet.path[packet.curr_idx+1]
+                    if next_hop is None:
                         failed.append(packet)
                         continue
+                    isl_candidates = [s.isl_up, s.isl_down, s.isl_left, s.isl_right]
+                    if isinstance(next_hop, int):  # 위성
+                        direction = isl_candidates.index(next_hop)
+                        buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
+                        data_rate = ISL_RATE_LASER
+                    else: # 지상
+                        direction = next_hop
+                        if direction in s.gsl_down_buffers.keys():
+                            buffer_queue = s.gsl_down_buffers[direction]
+                            data_rate = SGL_KA_DOWNLINK
+                            packet.last_direction = s.is_ascending()
+                        else: # 링크 끊김
+                            if fkey in s.fixed.keys():
+                                new_next_hop = s.fixed[fkey]
+                                packet.path.insert(packet.curr_idx + 1, new_next_hop)
+                                packet.detour_at.append(packet.curr)
+                                direction = isl_candidates.index(new_next_hop)
+                                buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
+                                data_rate = ISL_RATE_LASER
+                            else:
+                                candidates = [node_id for node_id in isl_candidates if direction in self.satellites[node_id].gsl_down_buffers.keys()]
+                                if candidates:
+                                    new_next_hop = min(candidates, key=lambda node_id: self.satellites[node_id].gsl_down_buffers[direction].size)
+                                    self.flow_controller.fix_flow(fkey, s.node, new_next_hop)
+                                    s.fixed[fkey] = new_next_hop
+                                    print(f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {s.node_id}, try: {direction}, detour to: {new_next_hop}")
+                                    packet.path.insert(packet.curr_idx+1, new_next_hop)
+                                    packet.detour_at.append(packet.curr)
+                                    direction = isl_candidates.index(new_next_hop)
+                                    buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
+                                    data_rate = ISL_RATE_LASER
+                                else:
+                                    failed.append(packet)
+                                    continue
+
+                    packet.queuing_delays.append((buffer_queue.size * PACKET_SIZE_BITS) / (TAU * data_rate))
+
+                    if packet.ttl <= 0:
+                        failed.append(packet)
+                    else:
+                        packet.was_on_ground = False
+                        s.enqueue_packet(direction, packet)
+                        packet.curr_idx += 1
+
+        for g in self.ground_relays.values():
+            while g.storage:
+                packet = g.storage.popleft()
+                fkey = (packet.source, packet.destination)
+                direction = packet.path[packet.curr_idx+1]
+
+                if direction is None:
+                    failed.append(packet)
+                    continue
+
+                if direction in g.gsl_up_buffers.keys():
+                    buffer_queue = g.gsl_up_buffers[direction]
+                else:
+                    if fkey in g.fixed.keys():
+                        next_hop = g.fixed[fkey]
+                        packet.path.insert(packet.curr_idx + 1, next_hop)
+                        packet.detour_at.append(packet.curr)
+                        direction = next_hop
+                        buffer_queue = g.gsl_up_buffers[direction]
+                    else:
+                        dir_obj = self.satellites[direction]
+                        adjacency_node_id = [dir_obj.isl_up, dir_obj.isl_down, dir_obj.isl_left, dir_obj.isl_right]
+                        candidates = [node_id for node_id in adjacency_node_id if node_id in g.gsl_up_buffers.keys()]
+                        if candidates:
+                            next_hop = min(candidates, key=lambda node_id: g.gsl_up_buffers[node_id].size)
+                            self.flow_controller.fix_flow(fkey, g.node_id, next_hop)
+                            g.fixed[fkey] = next_hop
+                            packet.path.insert(packet.curr_idx + 1, next_hop)
+                            packet.detour_at.append(packet.curr)
+                            direction = next_hop
+                            buffer_queue = g.gsl_up_buffers[direction]
+                        else:
+                            failed.append(packet)
+                            continue
 
                 packet.queuing_delays.append((buffer_queue.size * PACKET_SIZE_BITS) / (TAU * SGL_KA_UPLINK))
                 if packet.last_direction != self.satellites[direction].is_ascending():  # cross count
@@ -649,6 +766,7 @@ class Simulator:
 
     def update_satellite_and_links(self):
         # 위성 위치 및 링크 상태 업데이트
+        failed = []
         """위성 공전"""
         for s in self.satellites.values():
             s.update_position(self.omega_s, self.dt)
@@ -663,6 +781,11 @@ class Simulator:
                     print(f"satellite {s.node_id} and {g.node_id} is disconnected")
                     self.disconnect_cache.add((s.node_id, g.node_id))
                     self.disconnect_cache.add((g.node_id, s.node_id))
+                    failed += s.trash_packets(g.node_id)
+                    failed += g.trash_packets(s.node_id)
+
+        return failed
+
 
     def _log_results_to_csv(self):
         """처리 완료된 패킷들의 결과를 CSV 파일에 기록합니다."""
@@ -685,10 +808,7 @@ class Simulator:
             else:
                 drop_data = [packet.state, packet.dropped_node, packet.dropped_direction, packet.ended_lat,
                              packet.ended_lon, packet.ttl]
-            if self.if_isl:
-                data_if = [packet.expected_delay, packet.expected_isl_delay, packet.expected_isl_length]
-            else:
-                data_if = [None, None, None]
+            data_if = [None, None, None]
             row = common_data + drop_data + data_if
             rows.append(row)
         csv_write(rows, self.filepath, self.filename)
@@ -736,8 +856,8 @@ class Simulator:
 
             self._log_results_to_csv()
 
-            self.update_satellite_and_links()
             self.t += self.dt
+            self.failed += self.update_satellite_and_links()
 
 
         print("Traffic generation finished. Writing the remaining results...")
@@ -762,5 +882,5 @@ class Simulator:
             self.update_satellite_and_links()
             self.t += self.dt
 
-        self.flow_recorder.generate_report(self.filepath, self.generation_rate)
+        self.flow_recorder.generate_report(self.filepath, self.generation_rate, self.total_time)
         self._log_summary()

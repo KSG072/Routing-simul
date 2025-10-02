@@ -73,15 +73,10 @@ class GroundRelayNode:
 
         return [[], [], [], [], [], gsl_packets]
 
-    def trash_packets(self):
-        disconnected = [sat_id for sat_id in self.gsl_up_buffers.keys() if sat_id not in self.connected_sats]
-        if self.disconnected:
-            disconnected += self.disconnected
+    def trash_packets(self, sat_id):
         trash = []
-        for direction in disconnected:
-            disconnected_buffer = self.gsl_up_buffers.pop(direction)
-            trash += list(disconnected_buffer.buffer)
-        self.disconnected = []
+        disconnected_buffer = self.gsl_up_buffers.pop(sat_id)
+        trash += list(disconnected_buffer.buffer)
 
         return trash
 

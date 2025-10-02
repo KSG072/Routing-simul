@@ -84,7 +84,7 @@ class FlowRecorder:
         """플로우 시작 및 패킷 생성을 기록합니다."""
         if fkey not in self.on_flows:
             flow_stat = self.get_flow(fkey)
-            self.on_flows.add(flow_stat)
+            self.on_flows.add(fkey)
             if flow_stat.status == 'off':
                 flow_stat.on(time)
             flow_stat.total_packets_generated += num_packets
@@ -103,7 +103,7 @@ class FlowRecorder:
         if fkey in self.flows:
             self.flows[fkey].record_outcome(packet)
 
-    def generate_report(self, output_dir, rate):
+    def generate_report(self, output_dir, rate, time):
         """모든 플로우에 대한 최종 통계 보고서를 CSV 파일로 저장합니다."""
         if not self.flows:
             print("No flow statistics to report.")
@@ -123,7 +123,7 @@ class FlowRecorder:
             print("No flows with generated packets to report.")
             return
 
-        filepath = f"{output_dir}/flow_stats_{rate}.csv"
+        filepath = f"{output_dir}/flow_stats_{rate}_{time}.csv"
 
         try:
             with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
