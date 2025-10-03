@@ -218,7 +218,7 @@ if __name__ == '__main__':
         generated_count = 0
 
         dt = 10  # 1 ms
-        total_time = 1000  # second
+        total_time = 10000  # second
         # total_time = 20.51 # seconds
         steps = int(total_time / dt)
         packet_scope = None
@@ -235,7 +235,7 @@ if __name__ == '__main__':
         satellites = constellation.get_all_satellites() # dictionary
 
         ground_relays = load_ground_relays_from_csv(relay_csv_path, N * M)
-        traffic_schedule = load_event_schedule(traffic_schedule_path, total_time)
+        # traffic_schedule = load_event_schedule(traffic_schedule_path, total_time)
         # users = generate_users(start_idx=0, total_count=total_users)
         # users = generate_cities(start_idx=0)
 
@@ -323,11 +323,11 @@ if __name__ == '__main__':
 ))
 
         print(f"total {len(total_added)} edges added, total {len(total_removed)} edges removed during simulation")
-        print(f"added edges: {total_added}")
-        print(f"removed edges: {total_removed}")
-        print(f"add and remove edges: {total_added & total_removed}")
-        for e in total_added & total_removed:
-            print(e)
-        print(f"remaining edges: {len(remaining_edge)}")
-        for e in remaining_edge:
-            print(e)
+        # print(f"added edges: {total_added}")
+        # print(f"removed edges: {total_removed}")
+        # print(f"add and remove edges: {total_added & total_removed}")
+        # for e in total_added & total_removed:
+        #     print(e)
+        # print(f"remaining edges: {len(remaining_edge)}")
+        # for e in remaining_edge:
+        #     print(e)

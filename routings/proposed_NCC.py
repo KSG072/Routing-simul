@@ -114,6 +114,7 @@ class FlowController:
         self.flow_log = defaultdict(dict)
         self.hold_until = defaultdict(int)
         self.hold_steps = 100
+        self.failed_edges = []
 
         # flows[(src,dst)] = [demand, path, detours]
         self.flows = {}
@@ -397,7 +398,7 @@ class FlowController:
                     continue
 
                 # 과부하 엣지들을 회피하는 대체 경로 탐색
-                block_edges = overloaded_edges + excepted_edge
+                block_edges = overloaded_edges + excepted_edge + self.failed_edges
                 new_path, delay_cost, system_cost = self._get_secondary_path_and_cost(fkey, block_edges)
                 if new_path == path or (fkey in used_paths and new_path in used_paths[fkey]):
                     continue
@@ -457,6 +458,7 @@ class FlowController:
         # 2) cur_id 위치 찾기
         if cur_id in base:
             idx_s = base.index(cur_id)
+            self.failed_edges.append((cur_id, base[idx_s+1]))
 
             # 3) src→s_id 구간에서 next_hop이 이미 존재하면, 해당 지점~s_id 직전 삭제
             #    (루프/중복 제거, s_id는 남겨둠)
@@ -475,6 +477,7 @@ class FlowController:
             self.flows[fkey][1] = base
             self._add_flow_contribution(fkey)
             self._log_path(fkey, base)
+
         else:
             print(f"{cur_id} is already not in current path")
             print(f"current path: {base}")

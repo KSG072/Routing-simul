@@ -145,40 +145,49 @@ class RTPGGraph:
 
             relay = relay_data["obj"]
 
-            for search_region in relay_data["search_region"]:
-                P_min, R_min ,P_max, R_max = search_region
+            for sat_id, sat_data in satellites.items():
+                sat = sat_data["obj"]
+                if sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
+                    self.G.add_edge(relay_id, sat_id, type="gsl_up")
+                    self.G.add_edge(sat_id, relay_id, type="gsl_down")
+                    relay.link_to_sat(sat_id)
+                    sat.link_to_ground(relay_id)
 
-                for sat_id, sat_data in satellites.items():
-                    P_sat, R_sat = sat_data["position"]
-                    sat = sat_data["obj"]
+            # for search_region in relay_data["search_region"]:
+            #     P_min, R_min ,P_max, R_max = search_region
+            #
+            #     for sat_id, sat_data in satellites.items():
+            #         P_sat, R_sat = sat_data["position"]
+            #         sat = sat_data["obj"]
+            #
+            #         if P_min < P_max:
+            #             if R_min < R_max:
+            #                 if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
+            #                     self.G.add_edge(relay_id, sat_id, type="gsl_up")
+            #                     self.G.add_edge(sat_id, relay_id, type="gsl_down")
+            #                     relay.link_to_sat(sat_id)
+            #                     sat.link_to_ground(relay_id)
+            #             else:
+            #                 if P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
+            #                     self.G.add_edge(relay_id, sat_id, type="gsl_up")
+            #                     self.G.add_edge(sat_id, relay_id, type="gsl_down")
+            #                     relay.link_to_sat(sat_id)
+            #                     sat.link_to_ground(relay_id)
+            #         else:
+            #             if R_min < R_max:
+            #                 if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
+            #                     self.G.add_edge(relay_id, sat_id, type="gsl_up")
+            #                     self.G.add_edge(sat_id, relay_id, type="gsl_down")
+            #                     relay.link_to_sat(sat_id)
+            #                     sat.link_to_ground(relay_id)
+            #             else:
+            #                 if (P_min <= P_sat or P_sat <= P_max) and (
+            #                         R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
+            #                     self.G.add_edge(relay_id, sat_id, type="gsl_up")
+            #                     self.G.add_edge(sat_id, relay_id, type="gsl_down")
+            #                     relay.link_to_sat(sat_id)
+            #                     sat.link_to_ground(relay_id)
 
-                    if P_min < P_max:
-                        if R_min < R_max:
-                            if P_min <= P_sat <= P_max and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
-                                self.G.add_edge(relay_id, sat_id, type="gsl_up")
-                                self.G.add_edge(sat_id, relay_id, type="gsl_down")
-                                relay.link_to_sat(sat_id)
-                                sat.link_to_ground(relay_id)
-                        else:
-                            if P_min <= P_sat <= P_max and (R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
-                                self.G.add_edge(relay_id, sat_id, type="gsl_up")
-                                self.G.add_edge(sat_id, relay_id, type="gsl_down")
-                                relay.link_to_sat(sat_id)
-                                sat.link_to_ground(relay_id)
-                    else:
-                        if R_min < R_max:
-                            if (P_min <= P_sat or P_sat <= P_max) and R_min <= R_sat <= R_max and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
-                                self.G.add_edge(relay_id, sat_id, type="gsl_up")
-                                self.G.add_edge(sat_id, relay_id, type="gsl_down")
-                                relay.link_to_sat(sat_id)
-                                sat.link_to_ground(relay_id)
-                        else:
-                            if (P_min <= P_sat or P_sat <= P_max) and (
-                                    R_min <= R_sat or R_sat <= R_max) and sat.is_visible(relay.latitude_deg, relay.longitude_deg, in_graph=True):
-                                self.G.add_edge(relay_id, sat_id, type="gsl_up")
-                                self.G.add_edge(sat_id, relay_id, type="gsl_down")
-                                relay.link_to_sat(sat_id)
-                                sat.link_to_ground(relay_id)
 
     def connect_ground_links_for_only_isl(self):
         """

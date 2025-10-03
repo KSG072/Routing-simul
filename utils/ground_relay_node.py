@@ -30,7 +30,7 @@ class GroundRelayNode:
         self.gsl_up_buffers = {}
         self.disconnected = []
 
-        self.fixed = set()
+        self.fixed = {}
 
     def get_position(self):
         return (self.latitude_deg, self.longitude_deg)

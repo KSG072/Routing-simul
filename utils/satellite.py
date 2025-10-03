@@ -53,7 +53,7 @@ class Satellite:
         self.storage = deque()
         self.receiving = []
 
-        self.fixed = set()
+        self.fixed = {}
 
     def get_position(self):
         return self.real_latitude_deg, self.real_longitude_deg

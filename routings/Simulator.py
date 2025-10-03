@@ -270,17 +270,21 @@ class Simulator:
             sat_region_indices = self.mapper.batch_map(self.satellites.values())
             self.rtpg.reset_graph()
             self.rtpg.update_rtpg(self.satellites.values(), self.ground_relays.values(), sat_region_indices)
+            if self.flow_controller is not None:
+                self.flow_recorder.rtpg = self.rtpg
+                print(f"time:{self.t}, failed_edges: {self.flow_controller.failed_edges}")
+                self.flow_controller.failed_edges = []
 
-            for satellite in self.satellites.values():
-                if satellite.has_packets():
-                    self.failed += satellite.trash_packets()
-            for gr in self.ground_relays.values():
-                if gr.has_packets():
-                    self.failed += gr.trash_packets()
+            # for satellite in self.satellites.values():
+            #     if satellite.has_packets():
+            #         self.failed += satellite.trash_packets()
+            # for gr in self.ground_relays.values():
+            #     if gr.has_packets():
+            #         self.failed += gr.trash_packets()
 
             # if self.algorithm == 'proposed':
             #     self.table.load_routing_table(self.generation_rate, self.t)
-        if self.algorithm == 'proposed(flow)':
+        if self.flow_controller is not None:
             self.flow_controller.time = self.t
 
         # if self.disconnect_occur:
@@ -449,6 +453,8 @@ class Simulator:
                     fkey = (packet.source, packet.destination)
                     next_hop = packet.path[packet.curr_idx+1]
                     if next_hop is None:
+                        print(f"next hop is none. rate:{self.generation_rate}")
+                        packet.show_detailed()
                         failed.append(packet)
                         continue
                     isl_candidates = [s.isl_up, s.isl_down, s.isl_left, s.isl_right]
@@ -463,7 +469,7 @@ class Simulator:
                             data_rate = SGL_KA_DOWNLINK
                             packet.last_direction = s.is_ascending()
                         else:  # 링크 끊김
-                            if fkey in s.fixed.keys():
+                            if fkey in s.fixed.keys(): # 이미 계산된 flow
                                 new_next_hop = s.fixed[fkey]
                                 packet.path.insert(packet.curr_idx + 1, new_next_hop)
                                 packet.detour_at.append(packet.curr)
@@ -478,7 +484,7 @@ class Simulator:
                                     new_next_hop = min(candidates,
                                                        key=lambda node_id: self.satellites[node_id].gsl_down_buffers[
                                                            direction].size)
-                                    self.flow_controller.fix_flow(fkey, s.node, new_next_hop)
+                                    self.flow_controller.fix_flow(fkey, s.node_id, new_next_hop)
                                     s.fixed[fkey] = new_next_hop
                                     print(
                                         f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {s.node_id}, try: {direction}, detour to: {new_next_hop}")
@@ -514,7 +520,7 @@ class Simulator:
 
                 if direction in g.gsl_up_buffers.keys():
                     buffer_queue = g.gsl_up_buffers[direction]
-                else:
+                else: # 링크 끊김
                     if fkey in g.fixed.keys():
                         next_hop = g.fixed[fkey]
                         packet.path.insert(packet.curr_idx + 1, next_hop)
@@ -527,6 +533,8 @@ class Simulator:
                         candidates = [node_id for node_id in adjacency_node_id if node_id in g.gsl_up_buffers.keys()]
                         if candidates:
                             next_hop = min(candidates, key=lambda node_id: g.gsl_up_buffers[node_id].size)
+                            print(
+                                f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {g.node_id}, try: {direction}, detour to: {next_hop}")
                             self.flow_controller.fix_flow(fkey, g.node_id, next_hop)
                             g.fixed[fkey] = next_hop
                             packet.path.insert(packet.curr_idx + 1, next_hop)
@@ -563,40 +571,51 @@ class Simulator:
                     self.succeeded += 1
                 else:
                     fkey = (packet.source, packet.destination)
-                    next_hop = packet.path[packet.curr_idx+1]
+                    next_hop = packet.path[packet.curr_idx + 1]
                     if next_hop is None:
+                        print(f"next hop is none. rate:{self.generation_rate}")
+                        packet.show_detailed()
                         failed.append(packet)
                         continue
                     isl_candidates = [s.isl_up, s.isl_down, s.isl_left, s.isl_right]
                     if isinstance(next_hop, int):  # 위성
                         direction = isl_candidates.index(next_hop)
-                        buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
+                        buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][
+                            direction]
                         data_rate = ISL_RATE_LASER
-                    else: # 지상
+                    else:  # 지상
                         direction = next_hop
                         if direction in s.gsl_down_buffers.keys():
                             buffer_queue = s.gsl_down_buffers[direction]
                             data_rate = SGL_KA_DOWNLINK
                             packet.last_direction = s.is_ascending()
-                        else: # 링크 끊김
-                            if fkey in s.fixed.keys():
+                        else:  # 링크 끊김
+                            if fkey in s.fixed.keys():  # 이미 계산된 flow
                                 new_next_hop = s.fixed[fkey]
                                 packet.path.insert(packet.curr_idx + 1, new_next_hop)
                                 packet.detour_at.append(packet.curr)
                                 direction = isl_candidates.index(new_next_hop)
-                                buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
+                                buffer_queue = \
+                                    [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][
+                                        direction]
                                 data_rate = ISL_RATE_LASER
                             else:
-                                candidates = [node_id for node_id in isl_candidates if direction in self.satellites[node_id].gsl_down_buffers.keys()]
+                                candidates = [node_id for node_id in isl_candidates if
+                                              direction in self.satellites[node_id].gsl_down_buffers.keys()]
                                 if candidates:
-                                    new_next_hop = min(candidates, key=lambda node_id: self.satellites[node_id].gsl_down_buffers[direction].size)
-                                    self.flow_controller.fix_flow(fkey, s.node, new_next_hop)
+                                    new_next_hop = min(candidates,
+                                                       key=lambda node_id: self.satellites[node_id].gsl_down_buffers[
+                                                           direction].size)
+                                    self.flow_controller.fix_flow(fkey, s.node_id, new_next_hop)
                                     s.fixed[fkey] = new_next_hop
-                                    print(f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {s.node_id}, try: {direction}, detour to: {new_next_hop}")
-                                    packet.path.insert(packet.curr_idx+1, new_next_hop)
+                                    print(
+                                        f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {s.node_id}, try: {direction}, detour to: {new_next_hop}")
+                                    packet.path.insert(packet.curr_idx + 1, new_next_hop)
                                     packet.detour_at.append(packet.curr)
                                     direction = isl_candidates.index(new_next_hop)
-                                    buffer_queue = [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][direction]
+                                    buffer_queue = \
+                                        [s.isl_up_buffer, s.isl_down_buffer, s.isl_left_buffer, s.isl_right_buffer][
+                                            direction]
                                     data_rate = ISL_RATE_LASER
                                 else:
                                     failed.append(packet)
@@ -615,7 +634,7 @@ class Simulator:
             while g.storage:
                 packet = g.storage.popleft()
                 fkey = (packet.source, packet.destination)
-                direction = packet.path[packet.curr_idx+1]
+                direction = packet.path[packet.curr_idx + 1]
 
                 if direction is None:
                     failed.append(packet)
@@ -623,7 +642,7 @@ class Simulator:
 
                 if direction in g.gsl_up_buffers.keys():
                     buffer_queue = g.gsl_up_buffers[direction]
-                else:
+                else:  # 링크 끊김
                     if fkey in g.fixed.keys():
                         next_hop = g.fixed[fkey]
                         packet.path.insert(packet.curr_idx + 1, next_hop)
@@ -636,6 +655,8 @@ class Simulator:
                         candidates = [node_id for node_id in adjacency_node_id if node_id in g.gsl_up_buffers.keys()]
                         if candidates:
                             next_hop = min(candidates, key=lambda node_id: g.gsl_up_buffers[node_id].size)
+                            print(
+                                f"Generation rate: {self.generation_rate}, Time: {self.t}, flow: {fkey}, cur: {g.node_id}, try: {direction}, detour to: {next_hop}")
                             self.flow_controller.fix_flow(fkey, g.node_id, next_hop)
                             g.fixed[fkey] = next_hop
                             packet.path.insert(packet.curr_idx + 1, next_hop)
@@ -777,7 +798,7 @@ class Simulator:
             g.time_tic(self.dt)
             sats = (self.satellites[node_id] for node_id in g.connected_sats)
             for s in sats:
-                if (s.node_id, g.node_id) not in self.disconnect_cache and not s.is_visible(g.latitude_deg, g.longitude_deg):
+                if ((s.node_id, g.node_id) not in self.disconnect_cache) and (not s.is_visible(g.latitude_deg, g.longitude_deg)):
                     print(f"satellite {s.node_id} and {g.node_id} is disconnected")
                     self.disconnect_cache.add((s.node_id, g.node_id))
                     self.disconnect_cache.add((g.node_id, s.node_id))
