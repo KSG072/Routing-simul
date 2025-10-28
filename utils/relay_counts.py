@@ -405,14 +405,14 @@ def run(
 if __name__ == "__main__":
     # 예시 경로 (사용자 환경에 맞게 수정하세요)
     # BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\prop ver1.5_nodir"
-    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\prop_NCC 2"
-    rates = [40, 200, 360]
-    FILES: List[str] = [fr"{BASE}\result_{rate}.csv" for rate in rates]
+    BASE = r"C:\Users\김태성\PycharmProjects\ground-satellite routing\results\test\tmc"
+    rates = [360]
+    FILES: List[str] = [fr"{BASE}\result_{rate}_1000.csv" for rate in rates]
     # 모드 선택:
     # run(FILES, out_base="relay_counts", split_by_rate=False, counting_mode="whole_route")  # 기존 방식
     # run(FILES, out_base="relay_counts", split_by_rate=True,  counting_mode="whole_route")  # 기존 방식 + rate별
     # 새로운 방식 (next-hop 기준 drop 판단)
     mode = "before_and_after"
-    run(FILES, out_base=f"relay counts/prop(dir)/relay_counts_{mode}", split_by_rate=True, counting_mode=mode)
+    run(FILES, out_base=f"relay counts/tmc/relay_counts_{mode}", split_by_rate=True, counting_mode=mode)
     # run(FILES, out_base=f"relay counts/prop(no_dir)/relay_counts_{mode}", split_by_rate=True, counting_mode=mode)
     pass

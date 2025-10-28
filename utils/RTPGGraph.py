@@ -1,5 +1,6 @@
 from collections import defaultdict
 import networkx as nx
+from itertools import islice
 import numpy as np
 from copy import deepcopy
 
@@ -357,6 +358,21 @@ class RTPGGraph:
         except nx.NetworkXNoPath:
             raise RuntimeError(f"No path found between {source_id} and {target_id}")
 
+    def k_shortest_paths(self, source_id, target_id, k, weight):
+        """
+        NetworkX 기반 K-shortest paths wrapper
+        모든 edge weight는 기본적으로 1로 간주
+        """
+        if source_id not in self.G or target_id not in self.G:
+            raise ValueError(f"Source or target not found in graph: {source_id}, {target_id}")
+
+        try:
+            paths_generator = nx.shortest_simple_paths(self.G, source=source_id, target=target_id, weight=weight)
+            paths = list(islice(paths_generator, k))
+            return paths
+        except nx.NetworkXNoPath:
+            raise RuntimeError(f"No path found between {source_id} and {target_id}")
+
     def reset_graph(self):
         """
         그래프를 초기 상태로 리셋합니다.
@@ -377,9 +393,7 @@ class RTPGGraph:
             self.add_relay(gr, (gr.region_asc, gr.region_desc), (gr.search_regions_asc, gr.search_regions_desc))
 
         self.connect_isl_links()
-        if only_isl:
-            self.connect_ground_links_for_only_isl()
-        else:
+        if not only_isl:
             self.connect_ground_links()
 
     def relay_edge_counts(self):

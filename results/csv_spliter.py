@@ -45,5 +45,5 @@ if __name__ == '__main__':
         # split_csv_by_rows(filename, chunk_size=500000)
         filename = f"./prop_NCC 2_noFFR_10seconds/result_{index}.csv"
         # split_csv_by_rows(filename, chunk_size=500000)
-        filtering_only_fail(f"./prop_NCC 2_noFFR_10seconds/result_{index}.csv", 'success')
-        filtering_only_fail(f"./prop_NCC 2_FFR_10seconds/result_{index}.csv", 'success')
+        filtering_only_fail(f"./tmc_10seconds/result_{index}.csv", 'success')
+        # filtering_only_fail(f"./prop_NCC 2_FFR_10seconds/result_{index}.csv", 'success')
