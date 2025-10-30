@@ -884,7 +884,7 @@ def analyze_files_overall_boxplot(base_name, indices, directory='.',
 
 
 def compute_or_load_overall_csv(base_name, indices, directory='.',
-                                target_range=(200, 800),
+                                target_range=None,
                                 cache_name='overall.csv',
                                 force_recompute=False):
     """
@@ -1010,6 +1010,233 @@ def compute_or_load_overall_csv(base_name, indices, directory='.',
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     df_out.to_csv(cache_path, index=False, encoding='utf-8-sig')
     return df_out
+
+def compute_or_load_overall_csv_chunk(
+    base_name,
+    indices,
+    directory='.',
+    target_range=None,
+    cache_name='overall.csv',
+    force_recompute=False,
+    chunksize=500_000,              # 청크 크기(행 기준): 환경에 맞게 조절
+    whole_read_threshold_gb=10,     # 이 크기 이하면 전체 읽기 경로 사용
+):
+    """
+    스트리밍 집계 버전 (메모리 친화적).
+    반환 DataFrame 컬럼은 기존과 동일하게 보장.
+    """
+    from pathlib import Path
+    import os
+    import numpy as np
+    import pandas as pd
+
+    cache_path = Path(directory) / cache_name
+    needed_cols = [
+        'Time (ms)', 'e2e delay', 'Status', 'Path Length',
+        'Queuing Delay', 'Propagation Delay', 'Transmission Delay'
+    ]
+    required_columns = {'Time (ms)', 'e2e delay', 'Status'}
+
+    # 캐시 재사용
+    if cache_path.exists() and not force_recompute:
+        try:
+            df_cached = pd.read_csv(cache_path)
+            needed = {
+                'index','path_length_avg','path_length_min','path_length_max',
+                'delay_avg','delay_min','delay_max','drop_prob',
+                'queuing_avg','prop_avg','trans_avg','throughput','generated','success'
+            }
+            if needed.issubset(df_cached.columns):
+                return df_cached
+            else:
+                print(f"[WARN] {cache_path} 파일에 필요한 컬럼이 없습니다. 재계산합니다.")
+        except Exception as e:
+            print(f"[WARN] {cache_path} 읽기 실패({e}). 재계산합니다.")
+
+    rows = []
+
+    def _update_stats_numeric(series, offset=0.0, acc=None):
+        """NaN 제외 합/개수/최소/최대 누적"""
+        if acc is None:
+            acc = {'sum': 0.0, 'cnt': 0, 'min': None, 'max': None}
+        v = pd.to_numeric(series, errors='coerce')
+        if offset != 0.0:
+            v = v - offset
+        v = v.dropna()
+        if not v.empty:
+            s = float(v.sum())
+            c = int(v.size)
+            mn = float(v.min())
+            mx = float(v.max())
+            acc['sum'] += s
+            acc['cnt'] += c
+            acc['min'] = mn if acc['min'] is None else min(acc['min'], mn)
+            acc['max'] = mx if acc['max'] is None else max(acc['max'], mx)
+        return acc
+
+    for idx in indices:
+        filename = os.path.join(directory, f"{base_name}{idx}_1000.csv")
+        if not os.path.exists(filename):
+            print(f"[SKIP] File {filename} not found.")
+            continue
+
+        # 컬럼 사전 확인 (헤더만 읽기)
+        try:
+            header_df = pd.read_csv(filename, nrows=0, encoding='utf-8-sig')
+        except Exception as e:
+            print(f"[SKIP] {filename} 헤더 읽기 실패: {e}")
+            continue
+
+        cols = [c.strip().replace("\ufeff", "") for c in header_df.columns]
+        avail = set(cols)
+        if not required_columns.issubset(avail):
+            print(f"[SKIP] {filename} 컬럼 부족: {required_columns - avail}")
+            continue
+
+        # 실제로 읽을 컬럼 축소
+        usecols = [c for c in needed_cols if c in avail]
+
+        # target_range 계산(원 코드 유지): None이면 lo=min(Time), hi=마지막 유효행의 Time+e2e delay
+        if target_range is None:
+            lo, hi = None, None
+            last_time, last_delay = None, None
+            # 1패스: lo/hi 계산
+            for chunk in pd.read_csv(
+                filename,
+                usecols=usecols,
+                chunksize=chunksize,
+                encoding='utf-8-sig',
+                low_memory=True
+            ):
+                chunk.columns = [c.strip().replace("\ufeff", "") for c in chunk.columns]
+                t = pd.to_numeric(chunk['Time (ms)'], errors='coerce')
+                lo = float(np.nanmin([lo, t.min()])) if lo is not None else float(t.min())
+
+                if 'e2e delay' in chunk.columns:
+                    d = pd.to_numeric(chunk['e2e delay'], errors='coerce')
+                    valid = t.notna() & d.notna()
+                    if valid.any():
+                        last_time = float(t[valid].iloc[-1])
+                        last_delay = float(d[valid].iloc[-1])
+
+            if last_time is None or last_delay is None or lo is None:
+                print(f"[{idx}] 유효한 lo/hi를 계산할 수 없어 스킵합니다.")
+                continue
+            hi = last_time + last_delay
+        else:
+            lo, hi = target_range
+
+
+        # 누적자 초기화
+        total_generated = 0
+        total_success = 0
+
+        acc_path = {'sum': 0.0, 'cnt': 0, 'min': None, 'max': None}   # (Path Length - 1), success만
+        acc_dly  = {'sum': 0.0, 'cnt': 0, 'min': None, 'max': None}   # e2e delay, success만
+        acc_q    = {'sum': 0.0, 'cnt': 0, 'min': None, 'max': None}   # Queuing Delay, success만 (avg만 쓰지만 min/max 모아도 무방)
+        acc_p    = {'sum': 0.0, 'cnt': 0, 'min': None, 'max': None}   # Propagation Delay
+        acc_t    = {'sum': 0.0, 'cnt': 0, 'min': None, 'max': None}   # Transmission Delay
+
+        def _consume(df_in):
+            nonlocal total_generated, total_success
+            df = df_in.copy()
+            df.columns = [c.strip().replace("\ufeff", "") for c in df.columns]
+
+            # 시간 필터
+            tm = pd.to_numeric(df['Time (ms)'], errors='coerce')
+            m_time = (tm >= lo) & (tm < hi)
+            df = df[m_time]
+            if df.empty:
+                return
+
+            total_generated += len(df)
+
+            # success만 추출
+            status = df['Status'].astype(str).str.strip().str.lower()
+            df_ok = df[status == 'success']
+            total_success += len(df_ok)
+
+            if not df_ok.empty:
+                # Path Length - 1
+                if 'Path Length' in df_ok.columns:
+                    acc_path = _update_stats_numeric(pd.to_numeric(df_ok['Path Length'], errors='coerce'), offset=1.0, acc=_consume.acc_path)
+                    _consume.acc_path = acc_path
+                # e2e delay
+                if 'e2e delay' in df_ok.columns:
+                    acc_dly = _update_stats_numeric(pd.to_numeric(df_ok['e2e delay'], errors='coerce'), acc=_consume.acc_dly)
+                    _consume.acc_dly = acc_dly
+                # 구성요소 평균(있으면)
+                if 'Queuing Delay' in df_ok.columns:
+                    acc_q = _update_stats_numeric(pd.to_numeric(df_ok['Queuing Delay'], errors='coerce'), acc=_consume.acc_q)
+                    _consume.acc_q = acc_q
+                if 'Propagation Delay' in df_ok.columns:
+                    acc_p = _update_stats_numeric(pd.to_numeric(df_ok['Propagation Delay'], errors='coerce'), acc=_consume.acc_p)
+                    _consume.acc_p = acc_p
+                if 'Transmission Delay' in df_ok.columns:
+                    acc_t = _update_stats_numeric(pd.to_numeric(df_ok['Transmission Delay'], errors='coerce'), acc=_consume.acc_t)
+                    _consume.acc_t = acc_t
+
+        # 클로저에 누적자 바인딩
+        _consume.acc_path = acc_path
+        _consume.acc_dly  = acc_dly
+        _consume.acc_q    = acc_q
+        _consume.acc_p    = acc_p
+        _consume.acc_t    = acc_t
+
+
+        # 2패스 집계
+        print("[INFO] Processing file in chunks:", filename)
+        for chunk in pd.read_csv(
+            filename,
+            usecols=usecols,
+            chunksize=chunksize,
+            encoding='utf-8-sig',
+            low_memory=True
+        ):
+            _consume(chunk)
+
+        # 누적자 해제(최종값 가져오기)
+        acc_path = _consume.acc_path
+        acc_dly  = _consume.acc_dly
+        acc_q    = _consume.acc_q
+        acc_p    = _consume.acc_p
+        acc_t    = _consume.acc_t
+
+        # 최종 통계 계산
+        def _mean(acc): return (acc['sum'] / acc['cnt']) if acc['cnt'] > 0 else np.nan
+        def _min(acc):  return acc['min'] if acc['cnt'] > 0 else np.nan
+        def _max(acc):  return acc['max'] if acc['cnt'] > 0 else np.nan
+
+        drop_prob = (1 - (total_success / total_generated)) * 100 if total_generated > 0 else np.nan
+        try:
+            throughput_val = ((total_success / (hi - lo)) * 1000) / GIGA * PACKET_SIZE_BITS
+        except Exception:
+            throughput_val = np.nan
+
+        rows.append({
+            "index": idx,
+            "path_length_avg": _mean(acc_path),
+            "path_length_min": _min(acc_path),
+            "path_length_max": _max(acc_path),
+            "delay_avg": _mean(acc_dly),
+            "delay_min": _min(acc_dly),
+            "delay_max": _max(acc_dly),
+            "drop_prob": drop_prob,
+            "generated": total_generated,
+            "success": total_success,
+            "queuing_avg": _mean(acc_q),
+            "prop_avg": _mean(acc_p),
+            "trans_avg": _mean(acc_t),
+            "throughput": throughput_val,
+        })
+
+    df_out = pd.DataFrame(rows)
+    if not df_out.empty:
+        df_out = df_out.sort_values('index').reset_index(drop=True)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        df_out.to_csv(cache_path, index=False, encoding='utf-8-sig')
+    return df_out
+
 
 def _plot_overall_from_many(
     dir_to_df, dir_names,
@@ -1169,7 +1396,7 @@ def analyze_files_overall_multi(base_name,
                                 indices,
                                 directories,   # 경로 리스트
                                 dir_names,     # 같은 길이의 라벨 리스트
-                                target_range=(200, 600),
+                                target_range=None,
                                 cache_name='overall.csv',
                                 force_recompute=False,
                                 legend_in_one=True):
@@ -1186,7 +1413,7 @@ def analyze_files_overall_multi(base_name,
 
     dir_to_df = {}
     for d, name in zip(directories, dir_names):
-        df_overall = compute_or_load_overall_csv(
+        df_overall = compute_or_load_overall_csv_chunk(
             base_name=base_name,
             indices=indices,
             directory=d,
@@ -1641,39 +1868,39 @@ if __name__ == '__main__':
 
     # 비교 대상 디렉토리들
     directories = [
-        r"./dijkstra",
-        r"./tmc(latest)",
+        # r"./dijkstra",
+        # r"./tmc(latest)",
         r"./prop(latest)",
     ]
     dir_names = [
-        "dijkstra",
-        "fully distributed",
+        # "dijkstra",
+        # "fully distributed",
         "proposed",
     ]
     #
-    # analyze_files_overall_multi(
-    #     base_name='result_',
-    #     indices=indices,
-    #     # indices=[5,10,15,20],
-    #     directories=directories,
-    #     dir_names=dir_names,
-    #     target_range=(0,1000),
-    #     cache_name="overall.csv",   # 디렉토리별 캐시 파일명
-    #     force_recompute=False,      # True면 캐시 무시하고 재계산
-    #     legend_in_one=True,         # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
-    # )
-    #
-    analyze_delay_components_stacked_multi(
+    analyze_files_overall_multi(
         base_name='result_',
         indices=indices,
+        # indices=[5,10,15,20],
         directories=directories,
         dir_names=dir_names,
-        target_range=(0, 1000),
-        cache_name="overall.csv",
-        force_recompute=False,
-        bar_width=0.3,  # 디렉토리 수에 맞게 조절
-        hatch_patterns=('...', '///', ''),  # (prop, trans, queuing)
-        legend_outside=True
+        # target_range=(0,1000),    # None으로 해야 throuput 계산 가능
+        cache_name="overall.csv",   # 디렉토리별 캐시 파일명
+        force_recompute=False,      # True면 캐시 무시하고 재계산
+        legend_in_one=True,         # True: "DIR (avg)" 식 1개 범례 / False: 색-디렉토리, 스타일-통계치로 분리
     )
+
+    # analyze_delay_components_stacked_multi(
+    #     base_name='result_',
+    #     indices=indices,
+    #     directories=directories,
+    #     dir_names=dir_names,
+    #     target_range=(0, 1000),
+    #     cache_name="overall.csv",
+    #     force_recompute=False,
+    #     bar_width=0.3,  # 디렉토리 수에 맞게 조절
+    #     hatch_patterns=('...', '///', ''),  # (prop, trans, queuing)
+    #     legend_outside=True
+    # )
 
     # plot_drop_rate_over_time('./abalation study')

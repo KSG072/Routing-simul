@@ -4,8 +4,8 @@ from parameters.PARAMS import TOTAL_TIME
 from routings.Simulator import Simulator
 
 routing_table_directory_name = 'flow_log(10seconds)'
-algorithm = "ncdr"  # 사용할 라우팅 알고리즘: proposed(table), tmc, proposed(flow), dijkstra, dbpr, ncdr
-directory = r"./results/ncdr"  # 결과를 저장할 디렉토리 경로
+algorithm = "dpbr"  # 사용할 라우팅 알고리즘: proposed(table), tmc, proposed(flow), dijkstra, dbpr, pslb
+directory = r"./results/dbpr_10seconds"  # 결과를 저장할 디렉토리 경로
 
 def run_simulations_for_chunk(args):
     """
@@ -22,7 +22,6 @@ def run_simulations_for_chunk(args):
             generation_rate=rate,
             algorithm=routing_algorithm,
             filepath=filepath,
-            table_dir=routing_table_directory_name,
             simulation_time=simul_time,
         )
         simulator.run()
@@ -33,20 +32,20 @@ def run_simulations_for_chunk(args):
 if __name__ == "__main__":
     # 각 프로세스에 할당될 generation rate 리스트
     generation_rates = [
-        # [320, 40, 80],
-        # [360, 120],
-        # [240, 200],
-        # [160, 280],
-        [40],
-        [360],
-        [200],
+        [320, 40, 80],
+        [360, 120],
+        [240, 200],
+        [160, 280],
+        # [40],
+        # [360],
+        # [200],
 ]
-    num_processes = 3
+    num_processes = 4
 
     print(f"{num_processes}개의 코어에서 시뮬레이션을 병렬로 실행합니다.")
 
     # 프로세스 풀을 생성하고 각 프로세스에 rate 리스트를 할당하여 실행합니다.
-    args_list = [(i, algorithm, directory, 1000, rates) for i, rates in enumerate(generation_rates)]
+    args_list = [(i, algorithm, directory, 10000, rates) for i, rates in enumerate(generation_rates)]
     with multiprocessing.Pool(processes=num_processes) as pool:
         pool.map(run_simulations_for_chunk, args_list)
     print("모든 시뮬레이션이 완료되었습니다.")

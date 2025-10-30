@@ -14,7 +14,7 @@ import os
 
 from routings.DBPR import get_next_hop_DBPR
 from routings.flow_recorder import FlowRecorder
-from routings.NCDR import NCDR
+from routings.PSLB import PSLBFlowController
 
 from routings.link_recorder import LinkRecorder
 from routings.proposed_NCC import FlowController
@@ -32,7 +32,6 @@ from utils.loader import load_ground_relays_from_csv, batch_map_nodes, normalize
     prepare_node_routing_metadata, load_event_schedule
 from utils.rtpg_mapper import RTPGMapper
 from utils.RTPGGraph import RTPGGraph
-from utils.user_node_generator import generate_users, generate_cities
 from utils.csv_maker import csv_write, csv_create
 
 def delay_estimation(path, satellites, ground_relays):
@@ -209,7 +208,7 @@ def check_cross_counts(nodes: deque):
     return cross_count
 
 class Simulator:
-    def __init__(self, algorithm, generation_rate, filepath, table_dir, simulation_time, tqdm_position=None):
+    def __init__(self, algorithm, generation_rate, filepath, simulation_time, tqdm_position=None):
         """시뮬레이션 실행에 필요한 모든 변수를 초기화합니다."""
         self.algorithm = algorithm
         # self.disconnect_pair = []
@@ -220,8 +219,7 @@ class Simulator:
         self.filepath = filepath
         self.tqdm_position = tqdm_position
         self.filename = f"result_{self.generation_rate}_{simulation_time}.csv"
-        self.table_dir = table_dir
-        self.only_isl = True if algorithm in ['dbpr', 'ncdr'] else False
+        self.only_isl = True if algorithm in ['dbpr', 'pslb'] else False
 
         # CSV 헤더 및 파일 생성
         self.header = [
@@ -254,6 +252,8 @@ class Simulator:
         self.fail_cnt = 0
         self.flow_recorder = FlowRecorder()
         self.link_recorder = LinkRecorder()
+        self.flow_controller = None
+        self.pslb_flow_controller = None
 
         # 시뮬레이션 컴포넌트 초기화
         self._initialize_components()
@@ -280,11 +280,11 @@ class Simulator:
         self.rtpg = RTPGGraph(N=N, M=M, F=F)
         sat_region_indices = self.mapper.batch_map(self.satellites.values())
         self.rtpg.update_rtpg(self.satellites.values(), self.ground_relays.values(), sat_region_indices, only_isl=self.only_isl)
-        if self.algorithm in ('dijkstra', 'ncdr'):
+        if self.algorithm in ('dijkstra'):
             _update_rtpg_weights(self.rtpg, self.satellites, self.ground_relays)
         self.rtpg.integrity_check()
 
-        if self.algorithm in ('proposed(flow)','dijkstra','ncdr'):
+        if self.algorithm in ('proposed(flow)','dijkstra'):
             # self.flow = RoutingSchedule(self.table_dir, self.generation_rate)
             self.table = None
             from math import floor
@@ -293,8 +293,16 @@ class Simulator:
             GSL_DOWN_CAP = floor((SGL_KA_DOWNLINK) / 1000000)
             self.flow_controller = FlowController(self.rtpg, self.satellites, self.ground_relays, ISL_CAP, GSL_UP_CAP,
                                                   GSL_DOWN_CAP)
-        if self.algorithm == 'ncdr':
-            self.nc = NCDR(self.rtpg, initial_time_ms=0.0, time_slot_ms=TIME_SLOT)
+        if self.algorithm == 'pslb':
+            # PSLB: 큐 기반 혼잡 + position 기반 부분그래프
+            self.table = None
+            self.pslb_flow_controller = PSLBFlowController(
+                self.rtpg, self.satellites, self.ground_relays,
+                queue_capacity_pkts=500,  # 버퍼 패킷 수 정규화(임계계산용)
+                u_critical_ratio=0.8,  # 임계 이용률
+                k1=0.25, k2=1.0,  # 부분선택 φ 파라미터
+                alpha=1.0, sigma=0.02  # 비용식 가중
+            )
         else:
             self.table, self.flow_controller = None, None
 
@@ -306,18 +314,14 @@ class Simulator:
             sat_region_indices = self.mapper.batch_map(self.satellites.values())
             self.rtpg.reset_graph()
             self.rtpg.update_rtpg(self.satellites.values(), self.ground_relays.values(), sat_region_indices, only_isl=self.only_isl)
-            if self.algorithm in ('dijkstra','ncdr'):
+            if self.algorithm in ('dijkstra'):
                 _update_rtpg_weights(self.rtpg, self.satellites, self.ground_relays)
-            if self.flow_controller is not None:
-                self.flow_recorder.rtpg = self.rtpg
-                print(f"time:{self.t}, failed_edges: {self.flow_controller.failed_edges}")
-                self.flow_controller.failed_edges = set()
+                flows_key = self.flow_controller.flows.keys()
+                for fkey in flows_key:
+                    new_path, _ = self.rtpg.dijkstra_shortest_path(source_id=fkey[0], target_id=fkey[1],
+                                                                   weight='weight')
+                    self.flow_controller.flows[fkey][1] = new_path
 
-                if self.algorithm == 'dijkstra':
-                    flows_key = self.flow_controller.flows.keys()
-                    for fkey in flows_key:
-                        new_path, _ = self.rtpg.dijkstra_shortest_path(source_id=fkey[0], target_id=fkey[1], weight='weight')
-                        self.flow_controller.flows[fkey][1] = new_path
 
         if self.flow_controller is not None:
             self.flow_controller.time = self.t
@@ -359,22 +363,26 @@ class Simulator:
                     for _ in range(num_of_packets):
                         paths.append((path, len(path)))
 
-                elif self.algorithm == 'ncdr':
+                elif self.algorithm == 'pslb':
                     fkey = (src, dst)
-                    if self.flow_recorder.is_new_flow(fkey):  # 새로운 flow이면 flow_controller에서 경로를 추가하여 계산함
+                    if self.flow_recorder.is_new_flow(fkey):
                         self.flow_recorder.create_flow(fkey)
-                        self.flow_controller.build_flows(src, dst, 0)
-                        path = self.nc.plan_path(src, dst, self.generation_rate, self.t)
-                        self.flow_controller.flows[fkey][1] = path
+                        demand = self.generation_rate
+                        # 초기 경로 설치(가중치 'weight' 기반 최단, 이후 PSLB가 재라우팅)
+                        self.pslb_flow_controller.build_flows(src, dst, demand)
 
                     self.flow_recorder.record_flow_on(fkey, self.t, num_of_packets)
-                    path = list(self.flow_controller.get_path(fkey))
+                    path = list(self.pslb_flow_controller.get_path(fkey))
                     paths = []
                     for _ in range(num_of_packets):
                         paths.append((path, len(path)))
 
-                else:# 다익스트라
-                    paths = None
+                else: #tmc, dbpr
+                    fkey = (src, dst)
+                    if self.flow_recorder.is_new_flow(fkey):
+                        self.flow_recorder.create_flow(fkey)
+                    self.flow_recorder.record_flow_on((src, dst), self.t, num_of_packets)
+                    paths = get_route_sat_to_sat(self.rtpg, src, dst, n=num_of_packets)
 
                 self.generated_count += num_of_packets
 
@@ -427,8 +435,8 @@ class Simulator:
     def routing_phase(self):
         if self.algorithm == 'dbpr':
             return self.dbpr_routing()
-        elif self.algorithm == 'ncdr':
-            return self.dijstra_routing()
+        elif self.algorithm == 'pslb':
+            return self.psbl_routing()
         elif self.algorithm == 'proposed(flow)':
             return self.proposed_routing_flow()
         elif self.algorithm == 'dijkstra':
@@ -469,7 +477,7 @@ class Simulator:
 
         return success, failed
 
-    def ncdr_routing(self):
+    def psbl_routing(self):
         # 라우팅 페이즈 구현
         success = []
         failed = []
@@ -501,6 +509,8 @@ class Simulator:
                         packet.was_on_ground = False
                         s.enqueue_packet(direction, packet)
                         packet.curr_idx += 1
+        if self.t % 100 == 0:
+            self.pslb_flow_controller.solve_pslb(round_cap=2)
 
         return success, failed
 
